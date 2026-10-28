@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+artifacts/
+.tools/
+*.log
+.env*
+native/*.dll

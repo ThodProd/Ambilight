@@ -1,0 +1,12 @@
+{
+  "id": "ambilight",
+  "name": "Ambilight",
+  "kind": "Подсветка монитора",
+  "description": "Подсветка краёв экрана на ESP32: точечная калибровка ленты, живой предпросмотр, сценарии и расписание дня и ночи.",
+  "repository": "ThodProd/Ambilight",
+  "category": "Система",
+  "icon": "monitor",
+  "mode": "embedded",
+  "iconUrl": "https://raw.githubusercontent.com/ThodProd/ThodHUB-Registry/main/assets/icons/ambilight.svg",
+  "artworkUrl": "https://raw.githubusercontent.com/ThodProd/ThodHUB-Registry/main/assets/ambilight.svg"
+}
