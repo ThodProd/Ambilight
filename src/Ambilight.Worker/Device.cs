@@ -42,7 +42,10 @@ public sealed class Device : IDisposable
  {
   LocalAddress(ip);if(!System.Text.RegularExpressions.Regex.IsMatch(code,"^[0-9]{6}$"))throw new ArgumentException("Введите шестизначный код со страницы настройки ESP32.");
   using var response=await http.PostAsync($"http://{ip}/pair",new FormUrlEncodedContent(new Dictionary<string,string>{{"code",code}}),ct);
-  response.EnsureSuccessStatusCode();var json=await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+  if(response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+   throw new InvalidOperationException("Код привязки неверен, уже использован или сеанс настройки закрыт. Нужен новый шестизначный код со страницы настройки ESP32 — это не пароль Wi-Fi и не номер устройства. Откройте настройку кнопкой на 5 секунд либо командой SETUP через USB. Сохранённая привязка не изменена.");
+  if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"ESP32 не выполнила привязку (ответ {(int)response.StatusCode}). Проверьте адрес устройства и повторите настройку. Сохранённая привязка не изменена.");
+  var json=await response.Content.ReadFromJsonAsync<JsonElement>(ct);
   var newToken=json.GetProperty("token").GetString()??"";
   if(!System.Text.RegularExpressions.Regex.IsMatch(newToken,"^[a-fA-F0-9]{32}$"))throw new InvalidDataException("Устройство вернуло некорректный ключ.");
   File.WriteAllBytes(secretPath+".new",Secret.Protect(newToken));File.Move(secretPath+".new",secretPath,true);token=newToken;
@@ -50,7 +53,10 @@ public sealed class Device : IDisposable
  public async Task<JsonElement> Status(string ip,CancellationToken ct)
  {
   using var request=new HttpRequestMessage(HttpMethod.Get,$"http://{LocalAddress(ip)}/status");request.Headers.Authorization=new("Bearer",token);
-  using var response=await http.SendAsync(request,ct);response.EnsureSuccessStatusCode();return await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+  using var response=await http.SendAsync(request,ct);
+  if(response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)throw new InvalidOperationException("ESP32 не приняла сохранённый ключ. Выберите «Подключить другую ESP32 / привязать заново» и получите новый код настройки.");
+  if(!response.IsSuccessStatusCode)throw new InvalidOperationException($"ESP32 не вернула состояние (ответ {(int)response.StatusCode}). Повторяем соединение автоматически.");
+  return await response.Content.ReadFromJsonAsync<JsonElement>(ct);
  }
  public async Task Configure(Settings s,bool power,int brightness,CancellationToken ct)
  {

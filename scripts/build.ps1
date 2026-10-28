@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Подсветка четырёх краёв экрана, калибровка, сценарии и расписание. Схема подключения с D-портами, питание, кнопка и энкодер. Подсказка для проверки без ленты.'
+$notes='Понятный экран подключения: состояние Wi-Fi, одноразовая привязка только при необходимости, без дублирования ESP32. Объяснение отказа в привязке на русском.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)

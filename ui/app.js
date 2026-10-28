@@ -4,7 +4,7 @@ const theme=new URLSearchParams(location.search).get('theme');
 document.documentElement.dataset.theme=theme|| (matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 const call=(method,params=null)=>thodHub.call(`worker.${method}`,params);
 const names={screen:'За экраном',solid:'Один цвет',night:'Ночной свет',day:'Дневной свет',breath:'Дыхание',rainbow:'Перелив'};
-let settings=null,state=null,page='light',selected=0,revision=-1,busy=false,saveTimer=null,saveQueue=Promise.resolve(),dirty=false,editGeneration=0,identifyUntil=0,monitorKey='',lastColors=[],pollErrors=0;
+let settings=null,state=null,page='light',selected=0,revision=-1,busy=false,saveTimer=null,saveQueue=Promise.resolve(),dirty=false,editGeneration=0,identifyUntil=0,monitorKey='',lastColors=[],pollErrors=0,pairingOpen=false;
 function error(e){$('error').hidden=false;$('error').querySelector('span').textContent=e.message||String(e);}
 function safe(fn){return async (...args)=>{try{await fn(...args);}catch(e){error(e);}};}
 function text(id,value){$(id).textContent=value;}
@@ -21,7 +21,7 @@ function renderSettings(){if(!settings)return;const s=settings;$('power').setAtt
  const ids={'night-brightness':'nightBrightness','day-at':'dayAt','night-at':'nightAt',fps:'fps',gamma:'gamma',red:'red',green:'green',blue:'blue','top-count':'top','side-count':'side','bottom-count':'bottom',offset:'offset'};for(const [id,k]of Object.entries(ids))if(document.activeElement!==$(id))$(id).value=s[k];
  for(const [id,k]of Object.entries({schedule:'schedule','black-bars':'blackBars',reverse:'reverse'}))$(id).checked=s[k];
  $('smoothing').value=Math.round(s.smoothing*100);$('depth').value=Math.round(s.depth*100);text('smoothing-value',`${Math.round(s.smoothing*100)}%`);text('depth-value',`${Math.round(s.depth*100)}%`);text('night-value',`${s.nightBrightness}%`);text('schedule-note',s.schedule?`Ночной свет ${s.nightAt}–${s.dayAt}`:'Расписание выключено');
- if(document.activeElement!==$('device-ip'))$('device-ip').value=s.deviceIp;
+ if(!pairingOpen&&document.activeElement!==$('device-ip'))$('device-ip').value=s.deviceIp;
 }
 function scheduleSave(){dirty=true;editGeneration++;text('save-state','Сохранение…');clearTimeout(saveTimer);saveTimer=setTimeout(()=>safe(saveNow)(),250);}
 function saveNow(){clearTimeout(saveTimer);const snapshot=structuredClone(settings),generation=editGeneration;saveQueue=saveQueue.catch(()=>{}).then(async()=>{const result=await call('settings',snapshot);revision=result.revision;if(generation===editGeneration){dirty=false;settings=result.settings;text('save-state','Сохранено');}}).catch(e=>{text('save-state','Не сохранено');throw e;});return saveQueue;}
@@ -42,12 +42,32 @@ async function savePoint(x,y){if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||
 $('save-point').onclick=safe(()=>savePoint(+$('point-x').value/100,+$('point-y').value/100));
 $('reset-layout').onclick=()=>$('layout-dialog').showModal();$('cancel-layout').onclick=()=>$('layout-dialog').close();
 $('confirm-layout').onclick=safe(async()=>{await saveNow();const updated=await call('layout',{top:+$('top-count').value,side:+$('side-count').value,bottom:+$('bottom-count').value,offset:+$('offset').value,reverse:$('reverse').checked});settings=updated;selected=0;identifyUntil=0;buildLeds();renderSettings();$('layout-dialog').close();});
-async function scan(){await call('scan');$('network-visual').classList.add('scanning');text('scan-title','Ищем ESP32 в вашей сети');text('scan-description','Запрашиваем устройства Ambilight. Обычно это занимает несколько секунд.');}
+async function scan(){await call('scan');if(state){state={...state,scanning:true};renderConnection(state);}}
 $('scan').onclick=safe(scan);
-$('pair').onclick=safe(async()=>{$('pair').disabled=true;try{await saveQueue;await call('pair',{ip:$('device-ip').value.trim(),code:$('pair-code').value.trim()});$('pair-code').value='';text('scan-title','Привязка сохранена');text('scan-description','Проверяем связь с контроллером…');}finally{$('pair').disabled=false;}});
+$('show-pairing').onclick=safe(async()=>{pairingOpen=true;$('pair-code').value='';text('pairing-result','');renderConnection(state);await scan();});
+$('cancel-pairing').onclick=()=>{pairingOpen=false;$('pair-code').value='';text('pairing-result','');renderConnection(state);};
+$('pair').onclick=safe(async()=>{
+ const ip=$('device-ip').value.trim();
+ if(state?.connected&&ip===settings.deviceIp){pairingOpen=false;$('pair-code').value='';text('pairing-result','');renderConnection(state);return;}
+ $('pair').disabled=true;text('pairing-result','Проверяем код привязки…');
+ try{await saveQueue;await call('pair',{ip,code:$('pair-code').value.trim()});$('pair-code').value='';pairingOpen=false;text('pairing-result','Привязка сохранена');$('error').hidden=true;const s=await call('status');renderState(s);}
+ catch(e){text('pairing-result',e.message||String(e));}
+ finally{$('pair').disabled=false;}
+});
+function renderConnection(s){
+ if(!s)return;
+ const hasBinding=s.paired&&!!s.settings.deviceId,formVisible=pairingOpen||!hasBinding;
+ $('pairing-panel').hidden=!formVisible;$('show-pairing').hidden=!hasBinding||pairingOpen;$('cancel-pairing').hidden=!hasBinding||!pairingOpen;
+ $('network-visual').classList.toggle('scanning',s.scanning);$('scan').disabled=s.scanning;$('scan').textContent=s.scanning?'Поиск…':s.connected?'Найти другие устройства':'Найти устройства';
+ $('connected-device').hidden=!hasBinding;text('device-details',hasBinding?`ID платы: ${s.settings.deviceId}. Это идентификатор, а не код привязки.`:'');
+ if(s.connected){text('scan-title','ESP32 подключена по Wi-Fi');text('scan-description',`Локальный адрес: ${s.settings.deviceIp}. Привязка сохранена, повторно вводить код не нужно.`);}
+ else if(hasBinding){text('scan-title','Ожидаем сохранённую ESP32');text('scan-description',s.deviceError||'Привязка сохранена. Проверьте питание платы и Wi-Fi — соединение восстановится автоматически.');}
+ else{text('scan-title',s.scanning?'Ищем ESP32':s.devices.length?'Выберите вашу ESP32':'Устройства пока не найдены');text('scan-description',s.discoveryError||'Компьютер и ESP32 должны быть подключены к одному роутеру. Сначала выберите устройство, затем введите одноразовый код настройки.');}
+ const devices=formVisible?s.devices.filter(d=>!(s.connected&&d.id===s.settings.deviceId)):[];
+ const key=JSON.stringify(devices);if($('devices').dataset.key!==key){$('devices').dataset.key=key;$('devices').replaceChildren();for(const d of devices){const b=document.createElement('button');b.className='device-button';const name=document.createElement('span');name.textContent=`ESP32 · ID ${d.id.slice(-6)}`;const address=document.createElement('small');address.textContent=`Адрес: ${d.ip}`;b.append(name,address);b.onclick=()=>{$('device-ip').value=d.ip;$('pair-code').focus();};$('devices').append(b);}}
+}
 function renderState(s){state=s;renderMonitors(s.monitors);if(!dirty&&s.revision!==revision){settings=s.settings;revision=s.revision;buildLeds();renderSettings();}text('mode-caption',(names[s.mode]||s.mode).toUpperCase());text('frame-info',`${s.fps} кадр/с`);text('capture-status',s.captureError||(!settings.power?'Свет выключен':s.mode==='screen'?'Цвета с выбранного монитора':'Сценарий работает'));document.querySelector('.status-dot').classList.toggle('online',!s.captureError&&settings.power);text('connection-note',s.connected?`ESP32 подключена · ${settings.deviceIp}`:'Виртуальная лента · ESP32 не подключена');$('nav-dot').classList.toggle('online',s.connected);$('footer-status').replaceChildren();const dot=document.createElement('i');dot.className=`dot ${s.connected?'online':''}`;$('footer-status').append(dot,document.createTextNode(s.connected?'ESP32 на связи':s.paired?'Переподключение к ESP32':'Виртуальная лента'));
- $('network-visual').classList.toggle('scanning',s.scanning);$('scan').disabled=s.scanning;$('scan').textContent=s.scanning?'Поиск…':'Найти устройства';if(!s.scanning){text('scan-title',s.connected?'Подсветка подключена':s.devices.length?'Найдены устройства':s.paired?'Ожидаем ESP32':'Устройства пока не найдены');text('scan-description',s.discoveryError||s.deviceError||(s.connected?`Ambilight · ${settings.deviceIp}`:'Прошейте ESP32 и подключите её к тому же роутеру. Поиск можно повторить.'));}
- const deviceKey=JSON.stringify(s.devices);if($('devices').dataset.key!==deviceKey){$('devices').dataset.key=deviceKey;$('devices').replaceChildren();for(const d of s.devices){const b=document.createElement('button');b.className='device-button';const name=document.createElement('span');name.textContent=d.name;const address=document.createElement('small');address.textContent=d.ip;b.append(name,address);b.onclick=()=>{$('device-ip').value=d.ip;$('pair-code').focus();};$('devices').append(b);}}
+ renderConnection(s);
  if(!dirty){const bright=s.mode==='night'?settings.nightBrightness:settings.brightness;$('brightness').value=bright;text('brightness-value',`${bright}%`);}if(s.colors?.length)paintLeds(s.colors);if(identifyUntil&&Date.now()>identifyUntil){identifyUntil=0;paintLeds(lastColors);}
 }
 async function poll(){if(busy||!settings)return;busy=true;try{await call('preview',{enabled:!document.hidden&&(page==='calibration'||settings.preview&&page==='light')});if(page==='calibration'&&identifyUntil>Date.now())await call('calibrate',{index:selected});const s=await call('status');renderState(s);pollErrors=0;}catch(e){if(++pollErrors===1)error(new Error('Связь с рабочим процессом потеряна. '+e.message));}finally{busy=false;setTimeout(poll,document.hidden?1500:150);}}
