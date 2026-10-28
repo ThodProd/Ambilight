@@ -3,9 +3,10 @@
 // Никаких сторонних библиотек: используется Arduino-ESP32 3.3.4 и его RMT.
 #define LED_PIN 18
 #define BUTTON_PIN 23
-// Энкодер замыкает A/B на GND. Поставьте -1, если энкодер пока не подключён.
-#define ENCODER_A_PIN -1
-#define ENCODER_B_PIN -1
+// D25/D26: энкодер замыкает A/B на GND; внутренние подтяжки позволяют оставить входы свободными.
+// D18 = GPIO18, D23 = GPIO23. Номера обозначают GPIO, не позицию в ряду.
+#define ENCODER_A_PIN 25
+#define ENCODER_B_PIN 26
 #define MAX_LEDS 360
 #define DEFAULT_LEDS 96
 // WS2812B: 3 байта GRB. Для RGB SK6812 задайте требуемый порядок.
@@ -14,4 +15,4 @@
 #define CHANNEL_R 1
 #define CHANNEL_G 0
 #define CHANNEL_B 2
-#define FIRMWARE_VERSION "1.0.6"
+#define FIRMWARE_VERSION "1.0.7"
