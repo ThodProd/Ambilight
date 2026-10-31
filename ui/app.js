@@ -4,7 +4,7 @@ const theme=new URLSearchParams(location.search).get('theme');
 document.documentElement.dataset.theme=theme|| (matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');
 const call=(method,params=null)=>thodHub.call(`worker.${method}`,params);
 const names={screen:'За экраном',solid:'Один цвет',night:'Ночной свет',day:'Дневной свет',breath:'Дыхание',rainbow:'Перелив'};
-let settings=null,state=null,page='light',selected=0,revision=-1,busy=false,saveTimer=null,saveQueue=Promise.resolve(),dirty=false,editGeneration=0,identifyUntil=0,monitorKey='',lastColors=[],pollErrors=0,pairingOpen=false,regionPinned=false,regionVisible=false,regionTimer=null,regionSendTimer=null;
+let settings=null,state=null,page='light',selected=0,revision=-1,busy=false,saveTimer=null,saveQueue=Promise.resolve(),dirty=false,editGeneration=0,identifyUntil=0,monitorKey='',lastColors=[],pollErrors=0,pairingOpen=false,regionPinned=false,regionVisible=false,regionTimer=null,regionSendTimer=null,regionTouch=0;
 function error(e){$('error').hidden=false;$('error').querySelector('span').textContent=e.message||String(e);}
 function safe(fn){return async (...args)=>{try{await fn(...args);}catch(e){error(e);}};}
 function text(id,value){$(id).textContent=value;}
@@ -28,7 +28,7 @@ function saveNow(){clearTimeout(saveTimer);const snapshot=structuredClone(settin
 function change(key,value){settings[key]=value;renderSettings();scheduleSave();}
 function regionLabel(){const b=$('show-region');b.setAttribute('aria-pressed',regionPinned);b.textContent=regionPinned?'Скрыть область захвата':'Показать область захвата';}
 async function sendRegion(){if(!settings)return;try{await call('overlay',{enabled:regionVisible,depth:settings.depth,monitor:settings.monitor||''});}catch(e){regionVisible=false;regionPinned=false;regionLabel();throw e;}}
-function showRegion(){if(!settings)return;clearTimeout(regionTimer);regionVisible=true;clearTimeout(regionSendTimer);regionSendTimer=setTimeout(()=>safe(sendRegion)(),30);}
+function showRegion(){if(!settings)return;clearTimeout(regionTimer);regionVisible=true;regionTouch=Date.now();clearTimeout(regionSendTimer);regionSendTimer=setTimeout(()=>safe(sendRegion)(),30);}
 function hideRegionSoon(delay=1200){if(regionPinned)return;clearTimeout(regionTimer);regionTimer=setTimeout(()=>{regionVisible=false;safe(sendRegion)();},delay);}
 function hideRegionNow(){clearTimeout(regionTimer);clearTimeout(regionSendTimer);regionPinned=false;regionVisible=false;regionLabel();if(settings)safe(sendRegion)();}
 $('power').onclick=()=>change('power',!settings.power);$('preview').onchange=safe(async()=>{change('preview',$('preview').checked);await call('preview',{enabled:settings.preview&&page==='light'});});
@@ -41,7 +41,7 @@ $('depth').onpointerup=()=>hideRegionSoon();
 $('depth').onkeyup=()=>hideRegionSoon();
 $('depth').onblur=()=>hideRegionSoon(300);
 $('show-region').onclick=safe(async()=>{regionPinned=!regionPinned;regionLabel();if(regionPinned){showRegion();}else{clearTimeout(regionTimer);clearTimeout(regionSendTimer);regionVisible=false;await sendRegion();}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&regionVisible&&!regionPinned){regionVisible=false;safe(sendRegion)();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&regionVisible){regionPinned=false;regionVisible=false;regionLabel();safe(sendRegion)();}});
 addEventListener('pagehide',()=>{call('overlay',{enabled:false}).catch(()=>{});});
 for(const [id,key]of Object.entries({schedule:'schedule','black-bars':'blackBars'}))$(id).onchange=()=>change(key,$(id).checked);
 for(const [id,key]of Object.entries({'day-at':'dayAt','night-at':'nightAt'}))$(id).onchange=()=>change(key,$(id).value);
@@ -83,7 +83,7 @@ function renderState(s){state=s;renderMonitors(s.monitors);if(!dirty&&s.revision
  renderConnection(s);
  if(!dirty){const bright=s.mode==='night'?settings.nightBrightness:settings.brightness;$('brightness').value=bright;text('brightness-value',`${bright}%`);}if(s.colors?.length)paintLeds(s.colors);if(identifyUntil&&Date.now()>identifyUntil){identifyUntil=0;paintLeds(lastColors);}
 }
-async function poll(){if(busy||!settings)return;busy=true;try{await call('preview',{enabled:!document.hidden&&(page==='calibration'||settings.preview&&page==='light')});if(page==='calibration'&&identifyUntil>Date.now())await call('calibrate',{index:selected});const s=await call('status');renderState(s);pollErrors=0;}catch(e){if(++pollErrors===1)error(new Error('Связь с рабочим процессом потеряна. '+e.message));}finally{busy=false;setTimeout(poll,document.hidden?1500:150);}}
+async function poll(){if(busy||!settings)return;busy=true;try{await call('preview',{enabled:!document.hidden&&(page==='calibration'||settings.preview&&page==='light')});if(page==='calibration'&&identifyUntil>Date.now())await call('calibrate',{index:selected});const s=await call('status');renderState(s);if(regionPinned&&regionVisible&&Date.now()-regionTouch>4000){regionTouch=Date.now();safe(sendRegion)();}pollErrors=0;}catch(e){if(++pollErrors===1)error(new Error('Связь с рабочим процессом потеряна. '+e.message));}finally{busy=false;setTimeout(poll,document.hidden?1500:150);}}
 async function start(){const initial=await call('init');settings=initial.settings;$('autostart').checked=initial.autostart;text('version',initial.version);regionLabel();$('main-visual').innerHTML=monitorSvg();$('cal-visual').innerHTML=monitorSvg(true);buildLeds();renderSettings();renderMonitors(initial.monitors);if(initial.configError)error(new Error(initial.configError));
  $('cal-visual').querySelector('svg').onclick=safe(async e=>{if(e.target.closest('.selection'))return;const svg=e.currentTarget,pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const c=pt.matrixTransform(svg.getScreenCTM().inverse());let x=Math.max(0,Math.min(1,(c.x-83)/474)),y=Math.max(0,Math.min(1,(c.y-65)/270));const distances=[y*270,(1-x)*474,(1-y)*270,x*474],edge=distances.indexOf(Math.min(...distances));if(edge===0)y=0;if(edge===1)x=1;if(edge===2)y=1;if(edge===3)x=0;await savePoint(x,y);});
  await call('scan');poll();}

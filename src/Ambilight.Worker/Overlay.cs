@@ -11,8 +11,10 @@ internal sealed class RegionOverlay : IDisposable
 {
  private readonly object gate=new();
  private readonly Thread thread;
+ private readonly System.Threading.Timer watchdog;
  private OverlayForm? form;
  private bool disposed,wanted;
+ private long touch;
  private double depth=.06;
  private string monitor="";
 
@@ -21,6 +23,16 @@ internal sealed class RegionOverlay : IDisposable
   thread=new Thread(Run){IsBackground=true,Name="Ambilight capture region"};
   thread.SetApartmentState(ApartmentState.STA);
   thread.Start();
+  // If the hub disappears without sending enabled:false, never leave a stray
+  // topmost window over the desktop.
+  watchdog=new System.Threading.Timer(_=>Watchdog(),null,5000,5000);
+ }
+
+ private void Watchdog()
+ {
+  OverlayForm? window;
+  lock(gate){if(!wanted||Environment.TickCount64-touch<=20000)return;wanted=false;window=form;}
+  Post(window);
  }
 
  private void Run()
@@ -38,7 +50,7 @@ internal sealed class RegionOverlay : IDisposable
  {
   if(!double.IsFinite(value))return;
   OverlayForm? window;
-  lock(gate){wanted=true;depth=Math.Clamp(value,.01,.3);monitor=display??"";window=form;}
+  lock(gate){wanted=true;touch=Environment.TickCount64;depth=Math.Clamp(value,.01,.3);monitor=display??"";window=form;}
   Post(window);
  }
 
@@ -57,11 +69,12 @@ internal sealed class RegionOverlay : IDisposable
 
  public void Dispose()
  {
+  watchdog.Dispose();
   OverlayForm? window;
   lock(gate){disposed=true;wanted=false;window=form;form=null;}
   if(window is null)return;
   try{window.BeginInvoke(()=>{window.Close();Application.ExitThread();});}catch(InvalidOperationException){}
-  if(!thread.Join(800))thread.Join(200);
+  thread.Join(800);
  }
 }
 

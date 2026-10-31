@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Видимая область захвата: при настройке глубины полосы подсвечиваются прямо на мониторе. Кадры уходят на ленту сразу после расчёта, опрос ESP32 больше не задерживает свет.'
+$notes='Видимая область захвата: при настройке глубины полосы подсвечиваются прямо на мониторе. Кадры уходят на ленту сразу после расчёта, опрос ESP32 больше не задерживает свет. Полосы скрываются, если свернуть или закрыть окно хаба.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)
