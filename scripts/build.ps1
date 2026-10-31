@@ -1,4 +1,4 @@
-param([string]$HubRoot='D:/ThodPROD',[string]$Compiler='D:/ThodPROD/.tools/llvm/llvm-mingw-20260616-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe')
+﻿param([string]$HubRoot='D:/ThodPROD',[string]$Compiler='D:/ThodPROD/.tools/llvm/llvm-mingw-20260616-ucrt-x86_64/bin/x86_64-w64-mingw32-clang++.exe')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $manifest=Get-Content (Join-Path $root 'hub/manifest.json') -Raw | ConvertFrom-Json
@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Понятный экран подключения: состояние Wi-Fi, одноразовая привязка только при необходимости, без дублирования ESP32. Объяснение отказа в привязке на русском.'
+$notes='Видимая область захвата: при настройке глубины полосы подсвечиваются прямо на мониторе. Кадры уходят на ленту сразу после расчёта, опрос ESP32 больше не задерживает свет.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)

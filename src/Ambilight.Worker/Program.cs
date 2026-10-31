@@ -1,13 +1,17 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
 namespace Ambilight;
 internal static class Program
 {
+ // Physical pixels keep the on-screen capture preview aligned with DXGI on scaled displays.
+ [DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(nint value);
  static async Task<int> Main(string[] args)
  {
   Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);
+  try{SetProcessDpiAwarenessContext(-4);}catch(Exception){}
   if(args.Contains("--cleanup")){Startup.Set(false);return 0;}
   try
   {
@@ -47,7 +51,7 @@ internal static class Startup
 }
 internal sealed class Engine : IDisposable
 {
- readonly ConfigStore store=new();readonly object gate=new();readonly CancellationTokenSource stop=new();readonly Task loop;readonly Task networkLoop;readonly Device device;
+ readonly ConfigStore store=new();readonly object gate=new();readonly CancellationTokenSource stop=new();readonly Task loop;readonly Task frameLoop;readonly Task networkLoop;readonly Device device;readonly RegionOverlay overlay=new();readonly SemaphoreSlim frameReady=new(0,1);
  Settings settings;string configError="";string captureError="";string networkError="";string activeMode="screen";
  byte[] colors=[];byte[] outgoing=[];int calibration=-1;DateTime calibrationUntil;bool connected;bool configure=true;bool preview=true;
  Task<List<FoundDevice>>? discovery;List<FoundDevice> found=[];string discoveryError="";
@@ -55,7 +59,7 @@ internal sealed class Engine : IDisposable
  public Engine()
  {
   try{settings=store.Load();}catch(Exception ex){settings=new();configError="Не удалось прочитать конфигурацию: "+ex.Message;}
-  device=new(store.DirectoryPath);SystemEvents.PowerModeChanged+=PowerChanged;loop=Task.Run(Run);networkLoop=Task.Run(NetworkLoop);
+  device=new(store.DirectoryPath);SystemEvents.PowerModeChanged+=PowerChanged;loop=Task.Run(Run);frameLoop=Task.Run(FrameLoop);networkLoop=Task.Run(NetworkLoop);
  }
  void PowerChanged(object sender,PowerModeChangedEventArgs e){lock(gate){suspended=e.Mode==PowerModes.Suspend;if(e.Mode==PowerModes.Resume){suspended=false;configure=true;}}}
  static object[] Monitors()=>Screen.AllScreens.Select(s=>(object)new{id=s.DeviceName,name=$"{(s.Primary?"Основной":"Монитор")} · {s.Bounds.Width} × {s.Bounds.Height}",width=s.Bounds.Width,height=s.Bounds.Height,primary=s.Primary}).ToArray();
@@ -76,6 +80,14 @@ internal sealed class Engine : IDisposable
     lock(gate){var next=settings with{Top=top,Side=side,Bottom=bottom,Offset=offset,Reverse=reverse,Points=Settings.Layout(top,side,bottom,offset,reverse)};store.Save(next);settings=next;calibration=-1;configure=true;revision++;return settings;}
    case "calibrate":lock(gate){int index=p.GetProperty("index").GetInt32();if(index < -1||index>=settings.Points.Count)throw new ArgumentException("Нет такого светодиода.");calibration=index;calibrationUntil=DateTime.UtcNow.AddSeconds(5);return true;}
    case "preview":lock(gate){preview=p.GetProperty("enabled").GetBoolean();return true;}
+   case "overlay":
+    bool showOverlay=p.GetProperty("enabled").GetBoolean();
+    if(!showOverlay){overlay.Hide();return true;}
+    double overlayDepth;string overlayMonitor;lock(gate){overlayDepth=settings.Depth;overlayMonitor=settings.Monitor;}
+    if(p.TryGetProperty("depth",out var dp))overlayDepth=dp.GetDouble();
+    if(p.TryGetProperty("monitor",out var mp))overlayMonitor=mp.GetString()??"";
+    if(!double.IsFinite(overlayDepth)||overlayDepth<.01||overlayDepth>.3)throw new ArgumentException("Глубина захвата: 1–30%.");
+    overlay.Show(overlayDepth,overlayMonitor);return true;
    case "scan":lock(gate){if(discovery==null){discoveryError="";found=[];discovery=Device.Discover(stop.Token);}return true;}
    case "pair":
     var ip=p.GetProperty("ip").GetString()??"";var code=p.GetProperty("code").GetString()??"";
@@ -87,7 +99,7 @@ internal sealed class Engine : IDisposable
  }
  async Task Run()
  {
-  using var capture=new Capture();var clock=Stopwatch.StartNew();long lastFrames=0;double lastMeasure=0;var nextCapture=DateTime.MinValue;byte[] smooth=[];string lastMode="";int lastBrightness=-1;bool lastPower=false;
+  using var capture=new Capture();var clock=Stopwatch.StartNew();long lastFrames=0;double lastMeasure=0;double lastStamp=0;var nextCapture=DateTime.MinValue;byte[] smooth=[];string lastMode="";int lastBrightness=-1;bool lastPower=false;
   while(!stop.IsCancellationRequested)
   {
    var iteration=Stopwatch.StartNew();Settings s;int cal;bool sleep;
@@ -107,12 +119,31 @@ internal sealed class Engine : IDisposable
    catch(Exception ex){capture.Dispose();lock(gate)captureError="Захват временно недоступен. Повторяем подключение. "+ex.Message;}
    var rgb=Lighting.Frame(s,capture.Pixels,mode,clock.Elapsed.TotalSeconds,cal);
    if(mode=="screen"&&!capture.HasFrame&&cal<0)Array.Clear(rgb);
+   // Time-based smoothing keeps the same feel at 15, 30 and 60 fps; an older
+   // frame is never worth a longer pause when the loop falls behind.
+   double now=clock.Elapsed.TotalSeconds,keep=Math.Pow(s.Smoothing,Math.Clamp((now-lastStamp)*s.Fps,.05,4));lastStamp=now;
    if(smooth.Length!=rgb.Length||cal>=0)smooth=rgb.ToArray();
-   else for(int i=0;i<rgb.Length;i++)smooth[i]=(byte)Math.Round(smooth[i]*s.Smoothing+rgb[i]*(1-s.Smoothing));
+   else for(int i=0;i<rgb.Length;i++)smooth[i]=(byte)Math.Round(smooth[i]*keep+rgb[i]*(1-keep));
    // Failure and suspension must never retain stale screen colours.
    if(!power || mode=="screen"&&!capture.HasFrame&&cal<0)Array.Clear(smooth);
    lock(gate){outgoing=smooth.ToArray();colors=smooth.Select(v=>(byte)Math.Round(v*brightness/100.0)).ToArray();activeMode=mode;effectiveBrightness=brightness;frames++;if(clock.Elapsed.TotalSeconds-lastMeasure>=1){actualFps=(frames-lastFrames)/(clock.Elapsed.TotalSeconds-lastMeasure);lastFrames=frames;lastMeasure=clock.Elapsed.TotalSeconds;}}
+   // Hand the newest frame to the network task immediately instead of letting it
+   // wait for the next poll. A pending frame is simply replaced by the newer one.
+   if(frameReady.CurrentCount==0)frameReady.Release();
    try{await Task.Delay(Math.Max(1,(int)(1000.0/s.Fps-iteration.Elapsed.TotalMilliseconds)),stop.Token);}catch(OperationCanceledException){break;}
+  }
+ }
+ async Task FrameLoop()
+ {
+  while(!stop.IsCancellationRequested)
+  {
+   try{await frameReady.WaitAsync(stop.Token);}catch(OperationCanceledException){break;}
+   Settings s;byte[] rgb;bool ready;
+   lock(gate){s=settings;rgb=outgoing;ready=connected&&!suspended&&device.Paired&&!string.IsNullOrEmpty(s.DeviceIp);}
+   if(!ready||rgb.Length!=s.Points.Count*3)continue;
+   try{await device.Send(s.DeviceIp,rgb,stop.Token);}
+   catch(OperationCanceledException)when(stop.IsCancellationRequested){break;}
+   catch(Exception ex){lock(gate){connected=false;networkError="Нет связи с ESP32. "+ex.Message;configure=true;}try{await Task.Delay(250,stop.Token);}catch(OperationCanceledException){break;}}
   }
  }
  async Task NetworkLoop()
@@ -120,12 +151,12 @@ internal sealed class Engine : IDisposable
   var lastStatus=DateTime.MinValue;var nextDiscover=DateTime.MinValue;bool reconnect=true;
   while(!stop.IsCancellationRequested)
   {
-   Settings s;byte[] rgb;bool sendConfig,sleep;long expectedRevision;
-   lock(gate){s=settings;rgb=outgoing;sendConfig=configure;sleep=suspended;expectedRevision=revision;}
+   Settings s;bool sendConfig,sleep;long expectedRevision;
+   lock(gate){s=settings;sendConfig=configure;sleep=suspended;expectedRevision=revision;}
    if(device.Paired&&!string.IsNullOrEmpty(s.DeviceIp))try
    {
     var mode=Lighting.EffectiveMode(s,DateTime.Now);int brightness=mode=="night"?s.NightBrightness:s.Brightness;
-    if((DateTime.UtcNow-lastStatus).TotalSeconds>=1||sendConfig)
+    if((DateTime.UtcNow-lastStatus).TotalSeconds>=1||sendConfig||reconnect)
     {
      var remote=await device.Status(s.DeviceIp,stop.Token);
      if(remote.GetProperty("id").GetString()!=s.DeviceId)throw new InvalidOperationException("Адрес занят другим устройством.");
@@ -145,7 +176,6 @@ internal sealed class Engine : IDisposable
      if(sendConfig||reconnect){await device.Configure(s,s.Power&&!sleep,brightness,stop.Token);lock(gate)if(revision==expectedRevision)configure=false;}
      lock(gate){connected=true;networkError="";}lastStatus=DateTime.UtcNow;reconnect=false;
     }
-    if(rgb.Length==s.Points.Count*3)await device.Send(s.DeviceIp,rgb,stop.Token);
    }
    catch(OperationCanceledException)when(stop.IsCancellationRequested){break;}
    catch(Exception ex)
@@ -160,8 +190,8 @@ internal sealed class Engine : IDisposable
     }
     try{await Task.Delay(1000,stop.Token);}catch(OperationCanceledException){break;}
    }
-   try{await Task.Delay(Math.Max(16,1000/s.Fps),stop.Token);}catch(OperationCanceledException){break;}
+   try{await Task.Delay(250,stop.Token);}catch(OperationCanceledException){break;}
   }
  }
- public void Dispose(){SystemEvents.PowerModeChanged-=PowerChanged;stop.Cancel();try{Task.WaitAll([loop,networkLoop],1500);}catch(AggregateException){}device.Dispose();stop.Dispose();}
+ public void Dispose(){SystemEvents.PowerModeChanged-=PowerChanged;stop.Cancel();try{Task.WaitAll([loop,frameLoop,networkLoop],1500);}catch(AggregateException){}overlay.Dispose();device.Dispose();stop.Dispose();}
 }
