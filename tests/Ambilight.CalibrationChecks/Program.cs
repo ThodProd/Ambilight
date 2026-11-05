@@ -37,4 +37,12 @@ try
 }
 catch(ArgumentException){}
 
+var square116=CalibrationMap.Build(116,
+[
+ A("first",0,0,0),A("tl",0,0,0),A("tr",29,1,0),
+ A("br",58,1,1),A("bl",87,0,1),A("last",115,0,0)
+]);
+Check(square116.Clockwise,"Для рамки 116 LED неверно определено направление.");
+Check(square116.Points[0]==new LedPoint(0,0)&&square116.Points[115]==new LedPoint(0,0),"Первый и последний LED рамки должны сходиться в стартовом углу.");
+
 Console.WriteLine("Calibration checks passed.");

@@ -28,13 +28,20 @@ internal static class Lighting
   bool isDay=day<night?t>=day&&t<night:t>=day||t<night;
   return isDay?s.Mode:"night";
  }
- public static byte[] Frame(Settings s,byte[] pixels,string mode,double elapsed,int calibration)
+ public static byte[] Frame(Settings s,byte[] pixels,string mode,double elapsed,int calibration,bool verify=false)
  {
   var frame=new byte[s.Points.Count*3];var hex=Convert.FromHexString(s.Color[1..]);
+  int ambient=Math.Max(0,s.Points.Count-s.UtilityLedCount);
+  if(verify&&ambient>0)
+  {
+   int head=(int)(elapsed*18)%ambient;
+   for(int tail=0;tail<10;tail++){int i=(head-tail+ambient)%ambient;byte green=(byte)Math.Max(12,255-tail*24);frame[i*3]=0;frame[i*3+1]=green;frame[i*3+2]=(byte)(green/8);}
+   return frame;
+  }
   // A calibration marker must stay visible independently of colour correction or a skipped LED.
-  if(calibration>=0){if(calibration<s.Points.Count)Array.Fill(frame,(byte)255,calibration*3,3);return frame;}
+  if(calibration>=0){if(calibration<ambient)Array.Fill(frame,(byte)255,calibration*3,3);return frame;}
   int Edge(LedPoint p){double[] distances=[p.Y,1-p.X,1-p.Y,p.X];return Array.IndexOf(distances,distances.Min());}
-  var edgeCounts=new int[4];foreach(var point in s.Points)edgeCounts[Edge(point)]++;
+  var edgeCounts=new int[4];foreach(var point in s.Points.Take(ambient))edgeCounts[Edge(point)]++;
   int left=0,right=191,top=0,bottom=107;
   if(mode=="screen"&&s.BlackBars)
   {
@@ -43,7 +50,7 @@ internal static class Lighting
    while(top<22&&DarkRow(top))top++;while(bottom>85&&DarkRow(bottom))bottom--;
    while(left<38&&DarkCol(left))left++;while(right>153&&DarkCol(right))right--;
   }
-  for(int i=0;i<s.Points.Count;i++)
+  for(int i=0;i<ambient;i++)
   {
    var p=s.Points[i];if(p.Skip&&calibration<0)continue;double[] rgb=[0,0,0];
    if(calibration>=0) {if(calibration==i)rgb=[255,255,255];}
@@ -68,6 +75,13 @@ internal static class Lighting
    for(int c=0;c<3;c++)frame[i*3+c]=(byte)Math.Clamp(Math.Round(Math.Pow(rgb[c]/255,s.Gamma)*255*gains[c]),0,255);
   }
   return frame;
+ }
+ public static void Utility(Settings s,byte[] frame,bool connected,int brightness)
+ {
+  int count=s.UtilityLedCount,start=s.Points.Count-count;if(count<=0||s.UtilityMode!="status"||start<0)return;
+  frame[start*3]=(byte)(connected?20:255);frame[start*3+1]=(byte)(connected?255:110);frame[start*3+2]=0;
+  int gauge=count-1,lit=(int)Math.Round(gauge*Math.Clamp(brightness,0,100)/100.0);
+  for(int n=0;n<gauge;n++){int i=start+1+n;frame[i*3]=(byte)(n<lit?30:3);frame[i*3+1]=(byte)(n<lit?210:8);frame[i*3+2]=(byte)(n<lit?90:3);}
  }
  static double[] Hsv(double h) {double k=h*6,x=255*(1-Math.Abs(k%2-1));return (int)k switch {0=>[255,x,0],1=>[x,255,0],2=>[0,255,x],3=>[0,x,255],4=>[x,0,255],_=>[255,0,x]};}
 }

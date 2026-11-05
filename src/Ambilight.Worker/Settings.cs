@@ -29,6 +29,9 @@ public sealed record Settings
  public bool Reverse { get; set; }
  public List<LedPoint> Points { get; set; } = Layout(30,18,30,0,false);
  public List<CalibrationAnchor> CalibrationAnchors { get; set; } = [];
+ public int UtilityLedCount { get; set; }
+ public int UtilityBrightness { get; set; } = 20;
+ public string UtilityMode { get; set; } = "status";
  public string DeviceIp { get; set; } = "";
  public string DeviceId { get; set; } = "";
  public static List<LedPoint> Layout(int top,int side,int bottom,int offset,bool reverse)
@@ -44,6 +47,8 @@ public sealed record Settings
  public void Validate()
  {
   if(Points is null || Points.Count is < 4 or > 360 || Points.Any(p=>p is null || !double.IsFinite(p.X)||!double.IsFinite(p.Y)||p.X<0||p.X>1||p.Y<0||p.Y>1)) throw new ArgumentException("Лента должна содержать от 4 до 360 корректных точек.");
+  if(UtilityLedCount<0||UtilityLedCount>Math.Min(32,Points.Count-4))throw new ArgumentException("Служебных LED может быть от 0 до 32; на рамке должно остаться не менее четырёх.");
+  if(UtilityBrightness is <0 or >100||!new[]{"status","off"}.Contains(UtilityMode))throw new ArgumentException("Проверьте режим и яркость служебных LED.");
   if(Top<1||Side<1||Bottom<1||Top+2*Side+Bottom>360)throw new ArgumentException("Проверьте количество светодиодов.");
   if(Brightness is <0 or >100 || NightBrightness is <0 or >100 || Fps is <10 or >60)throw new ArgumentException("Яркость: 0–100%, частота: 10–60 кадров/с.");
   if(!double.IsFinite(Depth)||Depth<.01||Depth>.3||!double.IsFinite(Smoothing)||Smoothing<0||Smoothing>.95||!double.IsFinite(Gamma)||Gamma<.2||Gamma>3 || new[]{Red,Green,Blue}.Any(v=>!double.IsFinite(v)||v<0||v>2))throw new ArgumentException("Недопустимые параметры цвета.");

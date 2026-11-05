@@ -60,7 +60,7 @@ public sealed class Device : IDisposable
  }
  public async Task Configure(Settings s,bool power,int brightness,CancellationToken ct)
  {
-  var form=new Dictionary<string,string>{{"power",power?"1":"0"},{"brightness",brightness.ToString()},{"nightBrightness",s.NightBrightness.ToString()},{"count",s.Points.Count.ToString()},{"session",session.ToString()}};
+  var form=new Dictionary<string,string>{{"power",power?"1":"0"},{"brightness",brightness.ToString()},{"nightBrightness",s.NightBrightness.ToString()},{"count",s.Points.Count.ToString()},{"session",session.ToString()},{"utilityCount",s.UtilityLedCount.ToString()},{"utilityBrightness",s.UtilityBrightness.ToString()},{"utilityMode",s.UtilityMode=="status"?"1":"0"}};
   using var request=new HttpRequestMessage(HttpMethod.Post,$"http://{LocalAddress(s.DeviceIp)}/control"){Content=new FormUrlEncodedContent(form)};request.Headers.Authorization=new("Bearer",token);
   using var response=await http.SendAsync(request,ct);response.EnsureSuccessStatusCode();
  }
