@@ -28,6 +28,7 @@ public sealed record Settings
  public int Offset { get; set; }
  public bool Reverse { get; set; }
  public List<LedPoint> Points { get; set; } = Layout(30,18,30,0,false);
+ public List<CalibrationAnchor> CalibrationAnchors { get; set; } = [];
  public string DeviceIp { get; set; } = "";
  public string DeviceId { get; set; } = "";
  public static List<LedPoint> Layout(int top,int side,int bottom,int offset,bool reverse)

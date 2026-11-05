@@ -53,7 +53,7 @@ internal sealed class Engine : IDisposable
 {
  readonly ConfigStore store=new();readonly object gate=new();readonly CancellationTokenSource stop=new();readonly Task loop;readonly Task frameLoop;readonly Task networkLoop;readonly Device device;readonly RegionOverlay overlay=new();readonly SemaphoreSlim frameReady=new(0,1);
  Settings settings;string configError="";string captureError="";string networkError="";string activeMode="screen";
- byte[] colors=[];byte[] outgoing=[];int calibration=-1;DateTime calibrationUntil;bool connected;bool configure=true;bool preview=true;
+ byte[] colors=[];byte[] outgoing=[];int calibration=-1;List<LedPoint>? calibrationPoints;DateTime calibrationUntil;bool connected;bool configure=true;bool preview=true;
  Task<List<FoundDevice>>? discovery;List<FoundDevice> found=[];string discoveryError="";
  long revision;double actualFps;long frames;bool suspended;int effectiveBrightness=65;
  public Engine()
@@ -62,6 +62,13 @@ internal sealed class Engine : IDisposable
   device=new(store.DirectoryPath);SystemEvents.PowerModeChanged+=PowerChanged;loop=Task.Run(Run);frameLoop=Task.Run(FrameLoop);networkLoop=Task.Run(NetworkLoop);
  }
  void PowerChanged(object sender,PowerModeChangedEventArgs e){lock(gate){suspended=e.Mode==PowerModes.Suspend;if(e.Mode==PowerModes.Resume){suspended=false;configure=true;}}}
+ void EndCalibration(){calibrationPoints=null;calibration=-1;configure=true;revision++;}
+ Settings ActiveSettings()
+ {
+  if(calibration>=0&&DateTime.UtcNow>=calibrationUntil)EndCalibration();
+  return calibrationPoints==null?settings:settings with{Points=calibrationPoints,Mode="solid",Schedule=false,Brightness=20};
+ }
+ void RequireCalibration(){ActiveSettings();if(calibrationPoints==null)throw new InvalidOperationException("Калибровка завершена или истекло время ожидания. Начните её заново.");}
  static object[] Monitors()=>Screen.AllScreens.Select(s=>(object)new{id=s.DeviceName,name=$"{(s.Primary?"Основной":"Монитор")} · {s.Bounds.Width} × {s.Bounds.Height}",width=s.Bounds.Width,height=s.Bounds.Height,primary=s.Primary}).ToArray();
  public async Task<object> Call(string method,JsonElement p)
  {
@@ -70,15 +77,24 @@ internal sealed class Engine : IDisposable
    case "init":lock(gate)return new{settings,monitors=Monitors(),autostart=Startup.Enabled,version=typeof(Program).Assembly.GetName().Version!.ToString(3),configError,paired=device.Paired};
    case "status":
     lock(gate){if(discovery?.IsCompleted==true){if(discovery.IsCompletedSuccessfully)found=discovery.Result;else discoveryError=discovery.Exception?.GetBaseException().Message??"Поиск отменён.";discovery=null;}
-     return new{settings,revision,connected,paired=device.Paired,deviceError=networkError,captureError,configError,mode=activeMode,fps=Math.Round(actualFps,1),frames,brightness=effectiveBrightness,colors=preview?colors.Select(b=>(int)b).ToArray():[],calibration,scanning=discovery!=null,devices=found,discoveryError,monitors=Monitors()};}
+     return new{settings,revision,connected,paired=device.Paired,deviceError=networkError,captureError,configError,mode=activeMode,fps=Math.Round(actualFps,1),frames,brightness=effectiveBrightness,colors=preview?colors.Select(b=>(int)b).ToArray():[],calibration,calibrationActive=calibrationPoints!=null,calibrationCount=calibrationPoints?.Count??0,scanning=discovery!=null,devices=found,discoveryError,monitors=Monitors()};}
    case "settings":
     var updated=p.Deserialize<Settings>(ConfigStore.Json)??throw new ArgumentException("Нет настроек.");updated.Validate();
     lock(gate){updated.DeviceIp=settings.DeviceIp;updated.DeviceId=settings.DeviceId;store.Save(updated);settings=updated;configError="";configure=true;revision++;return new{settings,revision};}
    case "layout":
     int top=p.GetProperty("top").GetInt32(),side=p.GetProperty("side").GetInt32(),bottom=p.GetProperty("bottom").GetInt32(),offset=p.GetProperty("offset").GetInt32();bool reverse=p.GetProperty("reverse").GetBoolean();
     if(top<1||side<1||bottom<1||top+2*side+bottom>360)throw new ArgumentException("Количество: 4–360 светодиодов.");
-    lock(gate){var next=settings with{Top=top,Side=side,Bottom=bottom,Offset=offset,Reverse=reverse,Points=Settings.Layout(top,side,bottom,offset,reverse)};store.Save(next);settings=next;calibration=-1;configure=true;revision++;return settings;}
-   case "calibrate":lock(gate){int index=p.GetProperty("index").GetInt32();if(index < -1||index>=settings.Points.Count)throw new ArgumentException("Нет такого светодиода.");calibration=index;calibrationUntil=DateTime.UtcNow.AddSeconds(5);return true;}
+    lock(gate){var next=settings with{Top=top,Side=side,Bottom=bottom,Offset=offset,Reverse=reverse,Points=Settings.Layout(top,side,bottom,offset,reverse)};store.Save(next);settings=next;EndCalibration();return settings;}
+   case "calibration.begin":lock(gate){int count=p.GetProperty("count").GetInt32();if(count is <4 or >360)throw new ArgumentException("Укажите количество от 4 до 360 LED.");calibrationPoints=CalibrationMap.Uniform(count);calibration=0;calibrationUntil=DateTime.UtcNow.AddSeconds(15);configure=true;revision++;return true;}
+   case "calibration.select":lock(gate){RequireCalibration();int index=p.GetProperty("index").GetInt32();if(index<0||index>=calibrationPoints!.Count)throw new ArgumentException("Нет такого светодиода.");calibration=index;calibrationUntil=DateTime.UtcNow.AddSeconds(15);return true;}
+   case "calibration.cancel":lock(gate){EndCalibration();return true;}
+   case "calibration.preview":
+   case "calibration.finish":lock(gate){
+    RequireCalibration();var anchors=p.GetProperty("anchors").Deserialize<List<CalibrationAnchor>>(ConfigStore.Json)??throw new ArgumentException("Нет отмеченных точек.");
+    var map=CalibrationMap.Build(calibrationPoints!.Count,anchors);
+    if(method=="calibration.preview")return map;
+    var next=settings with{Points=map.Points,CalibrationAnchors=anchors};store.Save(next);settings=next;EndCalibration();return new{settings,revision};
+   }
    case "preview":lock(gate){preview=p.GetProperty("enabled").GetBoolean();return true;}
    case "overlay":
     bool showOverlay=p.GetProperty("enabled").GetBoolean();
@@ -103,7 +119,7 @@ internal sealed class Engine : IDisposable
   while(!stop.IsCancellationRequested)
   {
    var iteration=Stopwatch.StartNew();Settings s;int cal;bool sleep;
-   lock(gate){s=settings;cal=calibration>=0&&DateTime.UtcNow<calibrationUntil?calibration:-1;if(cal<0)calibration=-1;sleep=suspended;}
+   lock(gate){s=ActiveSettings();cal=calibration;sleep=suspended;}
    var mode=Lighting.EffectiveMode(s,DateTime.Now);int brightness=mode=="night"?s.NightBrightness:s.Brightness;bool power=s.Power&&!sleep;
    if(mode!=lastMode||lastBrightness!=brightness||lastPower!=power){lock(gate)configure=true;smooth=[];lastMode=mode;lastBrightness=brightness;lastPower=power;}
    try
@@ -139,7 +155,7 @@ internal sealed class Engine : IDisposable
   {
    try{await frameReady.WaitAsync(stop.Token);}catch(OperationCanceledException){break;}
    Settings s;byte[] rgb;bool ready;
-   lock(gate){s=settings;rgb=outgoing;ready=connected&&!suspended&&device.Paired&&!string.IsNullOrEmpty(s.DeviceIp);}
+   lock(gate){s=ActiveSettings();rgb=outgoing;ready=connected&&!suspended&&device.Paired&&!string.IsNullOrEmpty(s.DeviceIp);}
    if(!ready||rgb.Length!=s.Points.Count*3)continue;
    try{await device.Send(s.DeviceIp,rgb,stop.Token);}
    catch(OperationCanceledException)when(stop.IsCancellationRequested){break;}
@@ -151,8 +167,8 @@ internal sealed class Engine : IDisposable
   var lastStatus=DateTime.MinValue;var nextDiscover=DateTime.MinValue;bool reconnect=true;
   while(!stop.IsCancellationRequested)
   {
-   Settings s;bool sendConfig,sleep;long expectedRevision;
-   lock(gate){s=settings;sendConfig=configure;sleep=suspended;expectedRevision=revision;}
+   Settings s;bool sendConfig,sleep,calibrating;long expectedRevision;
+   lock(gate){s=ActiveSettings();calibrating=calibrationPoints!=null;sendConfig=configure;sleep=suspended;expectedRevision=revision;}
    if(device.Paired&&!string.IsNullOrEmpty(s.DeviceIp))try
    {
     var mode=Lighting.EffectiveMode(s,DateTime.Now);int brightness=mode=="night"?s.NightBrightness:s.Brightness;
@@ -165,7 +181,11 @@ internal sealed class Engine : IDisposable
      if(rb is <0 or >100||rn is <0 or >100)throw new InvalidDataException("Некорректная яркость устройства.");
      // On reconnection retain the physical OFF state and standalone brightness.
      // During a live connection an explicit UI command wins; ordinary polls mirror hardware.
-     if((reconnect||!sendConfig)&&!sleep)
+     if(calibrating&&!sendConfig&&!sleep&&rp!=s.Power)
+     {
+      lock(gate)if(revision==expectedRevision){var next=settings with{Power=rp};store.Save(next);settings=next;s=s with{Power=rp};revision++;expectedRevision=revision;}
+     }
+     else if(!calibrating&&(reconnect||!sendConfig)&&!sleep)
      {
       bool live=remote.GetProperty("streaming").GetBoolean();
       var next=s with{Power=rp,NightBrightness=rn};

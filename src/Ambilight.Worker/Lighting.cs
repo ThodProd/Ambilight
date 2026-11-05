@@ -31,6 +31,10 @@ internal static class Lighting
  public static byte[] Frame(Settings s,byte[] pixels,string mode,double elapsed,int calibration)
  {
   var frame=new byte[s.Points.Count*3];var hex=Convert.FromHexString(s.Color[1..]);
+  // A calibration marker must stay visible independently of colour correction or a skipped LED.
+  if(calibration>=0){if(calibration<s.Points.Count)Array.Fill(frame,(byte)255,calibration*3,3);return frame;}
+  int Edge(LedPoint p){double[] distances=[p.Y,1-p.X,1-p.Y,p.X];return Array.IndexOf(distances,distances.Min());}
+  var edgeCounts=new int[4];foreach(var point in s.Points)edgeCounts[Edge(point)]++;
   int left=0,right=191,top=0,bottom=107;
   if(mode=="screen"&&s.BlackBars)
   {
@@ -48,10 +52,10 @@ internal static class Lighting
     var px=left+p.X*(right-left);var py=top+p.Y*(bottom-top);
     int dx=Math.Max(1,(int)(192*s.Depth)),dy=Math.Max(1,(int)(108*s.Depth));
     // The nearest edge selects inward depth; tangential width follows LED density.
-    double[] edges=[p.Y,1-p.X,1-p.Y,p.X];int edge=Array.IndexOf(edges,edges.Min());
+    int edge=Edge(p);
     int x0,x1,y0,y1;
-    if(edge is 0 or 2) {int half=Math.Max(1,192/Math.Max(2,edge==0?s.Top:s.Bottom)/2);x0=(int)px-half;x1=(int)px+half;y0=edge==0?(int)py:(int)py-dy;y1=edge==0?(int)py+dy:(int)py;}
-    else {int half=Math.Max(1,108/Math.Max(2,s.Side)/2);y0=(int)py-half;y1=(int)py+half;x0=edge==3?(int)px:(int)px-dx;x1=edge==3?(int)px+dx:(int)px;}
+    if(edge is 0 or 2) {int half=Math.Max(1,192/Math.Max(2,edgeCounts[edge])/2);x0=(int)px-half;x1=(int)px+half;y0=edge==0?(int)py:(int)py-dy;y1=edge==0?(int)py+dy:(int)py;}
+    else {int half=Math.Max(1,108/Math.Max(2,edgeCounts[edge])/2);y0=(int)py-half;y1=(int)py+half;x0=edge==3?(int)px:(int)px-dx;x1=edge==3?(int)px+dx:(int)px;}
     int count=0;
     for(int y=Math.Clamp(y0,0,107);y<=Math.Clamp(y1,0,107);y++)for(int x=Math.Clamp(x0,0,191);x<=Math.Clamp(x1,0,191);x++){for(int c=0;c<3;c++)rgb[c]+=pixels[(y*192+x)*3+c];count++;}
     for(int c=0;c<3;c++)rgb[c]/=Math.Max(1,count);
