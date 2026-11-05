@@ -15,4 +15,4 @@
 #define CHANNEL_R 1
 #define CHANNEL_G 0
 #define CHANNEL_B 2
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.2.0"

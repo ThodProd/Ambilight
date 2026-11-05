@@ -135,7 +135,7 @@ void receiveFrame() {
 void button() {
  int raw=digitalRead(BUTTON_PIN);uint32_t now=millis();
  if(raw!=buttonRaw){buttonRaw=raw;buttonChanged=now;}
- if(now-buttonChanged>35&&raw!=buttonStable){buttonStable=raw;if(raw==LOW){pressedAt=now;held=false;}else if(!held){powerOn=!powerOn;markDirty();}}
+ if(now-buttonChanged>35&&raw!=buttonStable){buttonStable=raw;if(raw==LOW){pressedAt=now;held=false;}else if(!held){powerOn=!powerOn;saveState();}}
  if(buttonStable==LOW&&!held&&now-pressedAt>=5000){held=true;openProvisioning();}
 }
 void ARDUINO_ISR_ATTR encoderInterrupt() {
@@ -174,7 +174,7 @@ void draw() {
  if(!rmtReady||millis()-lastDraw<16)return;lastDraw=millis();bool live=streaming();uint16_t ambientCount=ledCount-utilityCount;size_t n=0;
  for(int i=0;i<MAX_LEDS;i++){
   uint8_t channel[LED_CHANNELS]={};
-  if(powerOn&&i<ledCount){
+  if(powerOn&&live&&i<ledCount){
    bool utility=i>=ambientCount;int u=utility?i-ambientCount:0,level=utility?utilityLevel[u]:(live?brightness:nightBrightness);uint8_t r=0,g=0,b=0;
    if(live){r=colors[i*3];g=colors[i*3+1];b=colors[i*3+2];}
    else if(!utility){r=255;g=143;b=49;}

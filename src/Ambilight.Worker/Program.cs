@@ -12,7 +12,9 @@ internal static class Program
  {
   Console.InputEncoding=new UTF8Encoding(false);Console.OutputEncoding=new UTF8Encoding(false);
   try{SetProcessDpiAwarenessContext(-4);}catch(Exception){}
-  if(args.Contains("--cleanup")){Startup.Set(false);return 0;}
+  if(args.Contains("--cleanup")){await Background.Stop();Startup.Set(false);return 0;}
+  if(args.Contains("--background"))return await Background.Serve();
+  if(!args.Contains("--direct"))return await Background.Proxy();
   try
   {
    using var app=new Engine();
