@@ -18,6 +18,8 @@ bool powerOn=true, apOpen=false, rmtReady=false, dirty=false, held=false, hadStr
 uint16_t ledCount=DEFAULT_LEDS;
 uint16_t utilityCount=0;
 int brightness=65, nightBrightness=20, utilityBrightness=20, utilityMode=1;
+uint8_t utilityFunction[MAX_LEDS]={},utilityLevel[MAX_LEDS]={},utilityRed[MAX_LEDS]={},utilityGreen[MAX_LEDS]={},utilityBlue[MAX_LEDS]={};
+String utilityConfig;
 uint32_t frameSession=0, sequence=0, lastFrame=0, dirtyAt=0, apDeadline=0, lastDraw=0;
 uint32_t receivedFrames=0;
 uint32_t buttonChanged=0, pressedAt=0, lastReconnect=0;
@@ -29,8 +31,22 @@ String serialCommand;
 String randomHex() { char b[33]; for(int i=0;i<4;i++)snprintf(b+i*8,9,"%08lx",(unsigned long)esp_random());return String(b); }
 bool streaming() { return lastFrame!=0 && (uint32_t)(millis()-lastFrame)<3500; }
 void markDirty() { dirty=true;dirtyAt=millis(); }
+void defaultUtilityConfig(uint16_t count) {
+ for(int i=0;i<count;i++){utilityFunction[i]=i<4?i+1:5;utilityLevel[i]=20;utilityRed[i]=i==0?56:255;utilityGreen[i]=i==0?215:255;utilityBlue[i]=i==0?122:255;}
+}
+bool decodeUtilityConfig(String value,uint16_t count) {
+ if(count==0){utilityConfig="";return value.length()==0;}
+ int start=0;
+ for(int i=0;i<count;i++){
+  int end=value.indexOf(';',start);if(end<0)end=value.length();String part=value.substring(start,end);int a=part.indexOf(','),b=part.indexOf(',',a+1);
+  if(a<1||b<a+2||part.length()!=b+7)return false;int fn=part.substring(0,a).toInt(),level=part.substring(a+1,b).toInt();
+  String hex=part.substring(b+1);for(int n=0;n<6;n++)if(!isxdigit(hex[n]))return false;if(fn<0||fn>5||level<0||level>100)return false;
+  uint32_t rgb=strtoul(hex.c_str(),nullptr,16);utilityFunction[i]=fn;utilityLevel[i]=level;utilityRed[i]=rgb>>16;utilityGreen[i]=rgb>>8;utilityBlue[i]=rgb;start=end+1;
+ }
+ if(start<value.length()+1)return false;utilityConfig=value;return true;
+}
 void saveState() {
- prefs.putBool("power",powerOn);prefs.putUChar("bright",brightness);prefs.putUChar("night",nightBrightness);prefs.putUShort("count",ledCount);prefs.putUShort("utilCount",utilityCount);prefs.putUChar("utilBright",utilityBrightness);prefs.putUChar("utilMode",utilityMode);dirty=false;
+ prefs.putBool("power",powerOn);prefs.putUChar("bright",brightness);prefs.putUChar("night",nightBrightness);prefs.putUShort("count",ledCount);prefs.putUShort("utilCount",utilityCount);prefs.putUChar("utilBright",utilityBrightness);prefs.putUChar("utilMode",utilityMode);prefs.putString("utilCfg",utilityConfig);dirty=false;
 }
 String escapeHtml(String s) {s.replace("&","&amp;");s.replace("<","&lt;");s.replace(">","&gt;");s.replace("\"","&quot;");return s;}
 bool apRequest() {return apOpen && web.client().localIP()==WiFi.softAPIP();}
@@ -80,12 +96,13 @@ void configureWeb() {
   const char* required[]={"power","brightness","nightBrightness","count","session"};
   for(auto key:required)if(!web.hasArg(key)){web.send(400,"text/plain","Missing field");return;}
   int count=web.arg("count").toInt(),b=web.arg("brightness").toInt(),n=web.arg("nightBrightness").toInt();
-  int uc=web.hasArg("utilityCount")?web.arg("utilityCount").toInt():0,ub=web.hasArg("utilityBrightness")?web.arg("utilityBrightness").toInt():20,um=web.hasArg("utilityMode")?web.arg("utilityMode").toInt():1;
+  int uc=web.hasArg("utilityCount")?web.arg("utilityCount").toInt():0,ub=web.hasArg("utilityBrightness")?web.arg("utilityBrightness").toInt():20,um=web.hasArg("utilityMode")?web.arg("utilityMode").toInt():1;String cfg=web.hasArg("utilityConfig")?web.arg("utilityConfig"):"";
   if(count<4||count>MAX_LEDS||b<0||b>100||n<0||n>100||uc<0||uc>32||uc>count-4||ub<0||ub>100||(um!=0&&um!=1)||(web.arg("power")!="0"&&web.arg("power")!="1")){web.send(400,"text/plain","Invalid value");return;}
   uint32_t session=strtoul(web.arg("session").c_str(),nullptr,10);
   if(session!=frameSession){frameSession=session;sequence=0;lastFrame=0;hadStream=false;}
   bool nextPower=web.arg("power")=="1";
-  if(nextPower!=powerOn||b!=brightness||n!=nightBrightness||count!=ledCount||uc!=utilityCount||ub!=utilityBrightness||um!=utilityMode)markDirty();
+  String oldCfg=utilityConfig;if(cfg.length()){if(!decodeUtilityConfig(cfg,uc)){web.send(400,"text/plain","Invalid utility config");return;}}else if(uc!=utilityCount){defaultUtilityConfig(uc);utilityConfig="";}
+  if(nextPower!=powerOn||b!=brightness||n!=nightBrightness||count!=ledCount||uc!=utilityCount||ub!=utilityBrightness||um!=utilityMode||oldCfg!=utilityConfig)markDirty();
   powerOn=nextPower;brightness=b;nightBrightness=n;ledCount=count;utilityCount=uc;utilityBrightness=ub;utilityMode=um;
   web.send(200,"application/json","{\"ok\":true}");
  });
@@ -158,10 +175,10 @@ void draw() {
  for(int i=0;i<MAX_LEDS;i++){
   uint8_t channel[LED_CHANNELS]={};
   if(powerOn&&i<ledCount){
-   bool utility=i>=ambientCount;int level=utility?utilityBrightness:(live?brightness:nightBrightness);uint8_t r=0,g=0,b=0;
+   bool utility=i>=ambientCount;int u=utility?i-ambientCount:0,level=utility?utilityLevel[u]:(live?brightness:nightBrightness);uint8_t r=0,g=0,b=0;
    if(live){r=colors[i*3];g=colors[i*3+1];b=colors[i*3+2];}
    else if(!utility){r=255;g=143;b=49;}
-   else if(utilityMode==1){int u=i-ambientCount;if(u==0){if(WiFi.status()==WL_CONNECTED){r=20;g=255;}else{r=255;g=100;}}else{int gauge=utilityCount-1,lit=(gauge*nightBrightness+99)/100;if(u<=lit){r=30;g=210;b=90;}else{r=3;g=8;b=3;}}}
+   else if(utilityMode==1){int fn=utilityFunction[u];if(fn==1){if(WiFi.status()==WL_CONNECTED){r=20;g=255;}else{r=255;g=100;}}else if(fn==2){r=255*(100-nightBrightness)/100;g=255*nightBrightness/100;b=35;}else if(fn==3){r=colors[i*3];g=colors[i*3+1];b=colors[i*3+2];}else if(fn==4||fn==5){r=utilityRed[u];g=utilityGreen[u];b=utilityBlue[u];}}
    channel[CHANNEL_R]=r*level/100;channel[CHANNEL_G]=g*level/100;channel[CHANNEL_B]=b*level/100;
   }
   for(int c=0;c<LED_CHANNELS;c++)for(int b=7;b>=0;b--){bool one=channel[c]&(1<<b);symbols[n].level0=1;symbols[n].duration0=one?8:4;symbols[n].level1=0;symbols[n].duration1=one?4:8;n++;}
@@ -173,7 +190,7 @@ void setup() {
  uint64_t id=ESP.getEfuseMac();char buffer[13];snprintf(buffer,sizeof(buffer),"%04x%08lx",(uint16_t)(id>>32),(unsigned long)id);deviceId=String(buffer);
  token=prefs.getString("token","");if(token.length()!=32){token=randomHex();prefs.putString("token",token);}
  apPassword=prefs.getString("apkey","");if(apPassword.length()<12){apPassword=randomHex().substring(0,12);prefs.putString("apkey",apPassword);}
- powerOn=prefs.getBool("power",true);brightness=constrain(prefs.getUChar("bright",65),0,100);nightBrightness=constrain(prefs.getUChar("night",20),0,100);ledCount=constrain(prefs.getUShort("count",DEFAULT_LEDS),4,MAX_LEDS);utilityCount=constrain(prefs.getUShort("utilCount",0),0,min(32,(int)ledCount-4));utilityBrightness=constrain(prefs.getUChar("utilBright",20),0,100);utilityMode=constrain(prefs.getUChar("utilMode",1),0,1);
+ powerOn=prefs.getBool("power",true);brightness=constrain(prefs.getUChar("bright",65),0,100);nightBrightness=constrain(prefs.getUChar("night",20),0,100);ledCount=constrain(prefs.getUShort("count",DEFAULT_LEDS),4,MAX_LEDS);utilityCount=constrain(prefs.getUShort("utilCount",0),0,min(32,(int)ledCount-4));utilityBrightness=constrain(prefs.getUChar("utilBright",20),0,100);utilityMode=constrain(prefs.getUChar("utilMode",1),0,1);defaultUtilityConfig(utilityCount);String savedUtility=prefs.getString("utilCfg","");if(savedUtility.length()&&!decodeUtilityConfig(savedUtility,utilityCount)){defaultUtilityConfig(utilityCount);utilityConfig="";}
 #if ENCODER_A_PIN >= 0 && ENCODER_B_PIN >= 0
  pinMode(ENCODER_A_PIN,INPUT_PULLUP);pinMode(ENCODER_B_PIN,INPUT_PULLUP);encoderPrevious=(digitalRead(ENCODER_A_PIN)<<1)|digitalRead(ENCODER_B_PIN);
  attachInterrupt(ENCODER_A_PIN,encoderInterrupt,CHANGE);attachInterrupt(ENCODER_B_PIN,encoderInterrupt,CHANGE);

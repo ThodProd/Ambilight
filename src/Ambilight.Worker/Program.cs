@@ -53,7 +53,7 @@ internal sealed class Engine : IDisposable
 {
  readonly ConfigStore store=new();readonly object gate=new();readonly CancellationTokenSource stop=new();readonly Task loop;readonly Task frameLoop;readonly Task networkLoop;readonly Device device;readonly RegionOverlay overlay=new();readonly SemaphoreSlim frameReady=new(0,1);
  Settings settings;string configError="";string captureError="";string networkError="";string activeMode="screen",deviceVersion="";
- byte[] colors=[];byte[] outgoing=[];int calibration=-1;List<LedPoint>? calibrationPoints;DateTime calibrationUntil;bool calibrationVerify,calibrationSaved;int calibrationUtilityCount,calibrationUtilityBrightness=20;bool connected;bool configure=true;bool preview=true;
+ byte[] colors=[];byte[] outgoing=[];int calibration=-1;List<LedPoint>? calibrationPoints;DateTime calibrationUntil;bool calibrationVerify,calibrationSaved;int calibrationUtilityCount,calibrationUtilityBrightness=20;List<UtilityLedConfig> calibrationUtilityLeds=[];bool connected;bool configure=true;bool preview=true;
  Task<List<FoundDevice>>? discovery;List<FoundDevice> found=[];string discoveryError="";
  long revision;double actualFps;long frames;bool suspended;int effectiveBrightness=65;
  public Engine()
@@ -66,7 +66,7 @@ internal sealed class Engine : IDisposable
  Settings ActiveSettings()
  {
   if(calibrationPoints!=null&&DateTime.UtcNow>=calibrationUntil)EndCalibration();
-  return calibrationPoints==null?settings:settings with{Points=calibrationPoints,UtilityLedCount=calibrationUtilityCount,UtilityBrightness=calibrationUtilityBrightness,Mode="solid",Schedule=false,Brightness=20,Power=true};
+  return calibrationPoints==null?settings:settings with{Points=calibrationPoints,UtilityLedCount=calibrationUtilityCount,UtilityBrightness=calibrationUtilityBrightness,UtilityLeds=calibrationUtilityLeds,Mode="solid",Schedule=false,Brightness=20,Power=true};
  }
  void RequireCalibration(){ActiveSettings();if(calibrationPoints==null)throw new InvalidOperationException("Калибровка завершена или истекло время ожидания. Начните её заново.");}
  static object[] Monitors()=>Screen.AllScreens.Select(s=>(object)new{id=s.DeviceName,name=$"{(s.Primary?"Основной":"Монитор")} · {s.Bounds.Width} × {s.Bounds.Height}",width=s.Bounds.Width,height=s.Bounds.Height,primary=s.Primary}).ToArray();
@@ -79,7 +79,7 @@ internal sealed class Engine : IDisposable
     lock(gate){if(discovery?.IsCompleted==true){if(discovery.IsCompletedSuccessfully)found=discovery.Result;else discoveryError=discovery.Exception?.GetBaseException().Message??"Поиск отменён.";discovery=null;}
      return new{settings,revision,connected,paired=device.Paired,deviceVersion,deviceError=networkError,captureError,configError,mode=activeMode,fps=Math.Round(actualFps,1),frames,brightness=effectiveBrightness,colors=preview?colors.Select(b=>(int)b).ToArray():[],calibration,calibrationVerify,calibrationActive=calibrationPoints!=null,calibrationCount=calibrationPoints?.Count??0,scanning=discovery!=null,devices=found,discoveryError,monitors=Monitors()};}
    case "settings":
-    var updated=p.Deserialize<Settings>(ConfigStore.Json)??throw new ArgumentException("Нет настроек.");updated.Validate();
+    var updated=p.Deserialize<Settings>(ConfigStore.Json)??throw new ArgumentException("Нет настроек.");updated.NormalizeUtilityLeds();updated.Validate();
     lock(gate){updated.DeviceIp=settings.DeviceIp;updated.DeviceId=settings.DeviceId;store.Save(updated);settings=updated;configError="";configure=true;revision++;return new{settings,revision};}
    case "layout":
     int top=p.GetProperty("top").GetInt32(),side=p.GetProperty("side").GetInt32(),bottom=p.GetProperty("bottom").GetInt32(),offset=p.GetProperty("offset").GetInt32();bool reverse=p.GetProperty("reverse").GetBoolean();
@@ -88,7 +88,7 @@ internal sealed class Engine : IDisposable
    case "calibration.begin":lock(gate){
     int count=p.GetProperty("count").GetInt32(),utility=p.TryGetProperty("utilityCount",out var uc)?uc.GetInt32():0,utilityBrightness=p.TryGetProperty("utilityBrightness",out var ub)?ub.GetInt32():20;
     if(count is <4 or >360||utility<0||utility>Math.Min(32,count-4)||utilityBrightness is <0 or >100)throw new ArgumentException("Проверьте общее и служебное количество LED.");
-    calibrationUtilityCount=utility;calibrationUtilityBrightness=utilityBrightness;calibrationPoints=CalibrationMap.Uniform(count-utility);calibrationPoints.AddRange(Enumerable.Repeat(new LedPoint(0,0,true),utility));calibration=0;calibrationVerify=false;calibrationSaved=false;calibrationUntil=DateTime.UtcNow.AddSeconds(15);configure=true;revision++;return true;}
+    calibrationUtilityCount=utility;calibrationUtilityBrightness=utilityBrightness;calibrationUtilityLeds=Settings.DefaultUtilityLeds(utility,utilityBrightness);calibrationPoints=CalibrationMap.Uniform(count-utility);calibrationPoints.AddRange(Enumerable.Repeat(new LedPoint(0,0,true),utility));calibration=0;calibrationVerify=false;calibrationSaved=false;calibrationUntil=DateTime.UtcNow.AddSeconds(15);configure=true;revision++;return true;}
    case "calibration.select":lock(gate){RequireCalibration();int index=p.GetProperty("index").GetInt32(),ambient=calibrationPoints!.Count-calibrationUtilityCount;if(index<0||index>=ambient)throw new ArgumentException("Нет такого светодиода на рамке.");calibration=index;calibrationVerify=false;calibrationUntil=DateTime.UtcNow.AddSeconds(15);return true;}
    case "calibration.keepalive":lock(gate){RequireCalibration();calibrationUntil=DateTime.UtcNow.AddSeconds(15);return true;}
    case "calibration.cancel":lock(gate){EndCalibration();return true;}
@@ -99,7 +99,7 @@ internal sealed class Engine : IDisposable
    case "calibration.save":lock(gate){
     RequireCalibration();var anchors=p.GetProperty("anchors").Deserialize<List<CalibrationAnchor>>(ConfigStore.Json)??throw new ArgumentException("Нет отмеченных точек.");
     var map=CalibrationMap.Build(calibrationPoints!.Count-calibrationUtilityCount,anchors);var points=map.Points.Concat(Enumerable.Repeat(new LedPoint(0,0,true),calibrationUtilityCount)).ToList();
-    var next=settings with{Points=points,CalibrationAnchors=anchors,UtilityLedCount=calibrationUtilityCount,UtilityBrightness=calibrationUtilityBrightness,UtilityMode="status",Power=true,Mode="screen"};store.Save(next);settings=next;calibrationPoints=points;calibration=-1;calibrationVerify=true;calibrationSaved=true;calibrationUntil=DateTime.UtcNow.AddSeconds(15);configure=true;revision++;return new{settings,revision,map};
+    var next=settings with{Points=points,CalibrationAnchors=anchors,UtilityLedCount=calibrationUtilityCount,UtilityBrightness=calibrationUtilityBrightness,UtilityMode="status",UtilityLeds=calibrationUtilityLeds,Power=true,Mode="screen"};store.Save(next);settings=next;calibrationPoints=points;calibration=-1;calibrationVerify=true;calibrationSaved=true;calibrationUntil=DateTime.UtcNow.AddSeconds(15);configure=true;revision++;return new{settings,revision,map};
    }
    case "calibration.finish":lock(gate){RequireCalibration();if(!calibrationSaved)throw new InvalidOperationException("Сначала сохраните схему и проверьте зелёную змейку.");EndCalibration();return new{settings,revision};
    }
@@ -142,7 +142,7 @@ internal sealed class Engine : IDisposable
    }
    catch(Exception ex){capture.Dispose();lock(gate)captureError="Захват временно недоступен. Повторяем подключение. "+ex.Message;}
    var rgb=Lighting.Frame(s,capture.Pixels,mode,clock.Elapsed.TotalSeconds,cal,verify);
-   if(cal<0&&!verify)Lighting.Utility(s,rgb,online,brightness);
+   if(cal<0&&!verify)Lighting.Utility(s,rgb,online,brightness,mode);
    if(mode=="screen"&&!capture.HasFrame&&cal<0)Array.Clear(rgb);
    // Time-based smoothing keeps the same feel at 15, 30 and 60 fps; an older
    // frame is never worth a longer pause when the loop falls behind.
@@ -151,7 +151,7 @@ internal sealed class Engine : IDisposable
    else for(int i=0;i<rgb.Length;i++)smooth[i]=(byte)Math.Round(smooth[i]*keep+rgb[i]*(1-keep));
    // Failure and suspension must never retain stale screen colours.
    if(!power || mode=="screen"&&!capture.HasFrame&&cal<0)Array.Clear(smooth);
-   lock(gate){outgoing=smooth.ToArray();colors=new byte[smooth.Length];int ambient=s.Points.Count-s.UtilityLedCount;for(int i=0;i<s.Points.Count;i++){int level=i<ambient?brightness:s.UtilityBrightness;for(int c=0;c<3;c++)colors[i*3+c]=(byte)Math.Round(smooth[i*3+c]*level/100.0);}activeMode=mode;effectiveBrightness=brightness;frames++;if(clock.Elapsed.TotalSeconds-lastMeasure>=1){actualFps=(frames-lastFrames)/(clock.Elapsed.TotalSeconds-lastMeasure);lastFrames=frames;lastMeasure=clock.Elapsed.TotalSeconds;}}
+   lock(gate){outgoing=smooth.ToArray();colors=new byte[smooth.Length];int ambient=s.Points.Count-s.UtilityLedCount;for(int i=0;i<s.Points.Count;i++){int level=i<ambient?brightness:s.UtilityLeds[i-ambient].Brightness;for(int c=0;c<3;c++)colors[i*3+c]=(byte)Math.Round(smooth[i*3+c]*level/100.0);}activeMode=mode;effectiveBrightness=brightness;frames++;if(clock.Elapsed.TotalSeconds-lastMeasure>=1){actualFps=(frames-lastFrames)/(clock.Elapsed.TotalSeconds-lastMeasure);lastFrames=frames;lastMeasure=clock.Elapsed.TotalSeconds;}}
    // Hand the newest frame to the network task immediately instead of letting it
    // wait for the next poll. A pending frame is simply replaced by the newer one.
    if(frameReady.CurrentCount==0)frameReady.Release();

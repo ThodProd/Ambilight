@@ -76,12 +76,20 @@ internal static class Lighting
   }
   return frame;
  }
- public static void Utility(Settings s,byte[] frame,bool connected,int brightness)
+ public static void Utility(Settings s,byte[] frame,bool connected,int brightness,string mode)
  {
-  int count=s.UtilityLedCount,start=s.Points.Count-count;if(count<=0||s.UtilityMode!="status"||start<0)return;
-  frame[start*3]=(byte)(connected?20:255);frame[start*3+1]=(byte)(connected?255:110);frame[start*3+2]=0;
-  int gauge=count-1,lit=(int)Math.Round(gauge*Math.Clamp(brightness,0,100)/100.0);
-  for(int n=0;n<gauge;n++){int i=start+1+n;frame[i*3]=(byte)(n<lit?30:3);frame[i*3+1]=(byte)(n<lit?210:8);frame[i*3+2]=(byte)(n<lit?90:3);}
+  int count=s.UtilityLedCount,start=s.Points.Count-count;if(count<=0||start<0)return;
+  int ambient=Math.Max(1,start);long ar=0,ag=0,ab=0;for(int i=0;i<ambient;i++){ar+=frame[i*3];ag+=frame[i*3+1];ab+=frame[i*3+2];}
+  for(int n=0;n<count;n++)
+  {
+   var config=s.UtilityLeds[n];int i=start+n;byte r=0,g=0,b=0;
+   if(config.Function=="connection"){r=(byte)(connected?20:255);g=(byte)(connected?255:100);}
+   else if(config.Function=="brightness"){double v=Math.Clamp(brightness,0,100)/100.0;r=(byte)Math.Round(255*(1-v));g=(byte)Math.Round(255*v);b=35;}
+   else if(config.Function=="screen"){r=(byte)(ar/ambient);g=(byte)(ag/ambient);b=(byte)(ab/ambient);}
+   else if(config.Function=="mode"){var modeColor=mode switch{"screen"=>(60,150,255),"night"=>(255,130,35),"day"=>(180,220,255),"rainbow"=>(210,75,255),"breath"=>(160,120,230),_=>(255,180,80)};r=(byte)modeColor.Item1;g=(byte)modeColor.Item2;b=(byte)modeColor.Item3;}
+   else if(config.Function=="color"){var rgb=Convert.FromHexString(config.Color[1..]);r=rgb[0];g=rgb[1];b=rgb[2];}
+   frame[i*3]=r;frame[i*3+1]=g;frame[i*3+2]=b;
+  }
  }
  static double[] Hsv(double h) {double k=h*6,x=255*(1-Math.Abs(k%2-1));return (int)k switch {0=>[255,x,0],1=>[x,255,0],2=>[0,255,x],3=>[0,x,255],4=>[x,0,255],_=>[255,0,x]};}
 }

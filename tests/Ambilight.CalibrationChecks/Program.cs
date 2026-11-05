@@ -45,4 +45,9 @@ var square116=CalibrationMap.Build(116,
 Check(square116.Clockwise,"Для рамки 116 LED неверно определено направление.");
 Check(square116.Points[0]==new LedPoint(0,0)&&square116.Points[115]==new LedPoint(0,0),"Первый и последний LED рамки должны сходиться в стартовом углу.");
 
+var serviceSettings=new Settings{Points=Settings.Layout(30,18,30,0,false).Concat(Enumerable.Repeat(new LedPoint(0,0,true),4)).ToList(),UtilityLedCount=4};
+serviceSettings.NormalizeUtilityLeds();
+Check(serviceSettings.UtilityLeds.Select(x=>x.Function).SequenceEqual(["connection","brightness","screen","mode"]),"Не назначены четыре разные функции служебных LED.");
+serviceSettings.Validate();
+
 Console.WriteLine("Calibration checks passed.");

@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Начало и направление ленты теперь выбираются одинаково красиво на компактной миниатюре: сначала точка LED 1 / DIN, затем одна из двух соседних точек «LED 2 сюда». Текстовые кнопки направления убраны.'
+$notes='Для каждого служебного LED добавлена отдельная карточка с функцией, яркостью и цветом. Доступны: связь с ESP32, уровень яркости, цвет экрана, текущий режим, постоянный цвет и выключение. Прошивка 1.1.0 сохраняет индивидуальные настройки и использует их без хаба.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)
