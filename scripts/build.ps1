@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Новый мастер калибровки: введите количество LED, отметьте первый, угловые и последний светодиоды. Направление и остальные позиции рассчитываются автоматически.'
+$notes='Количество LED в калибровке больше не подставляется автоматически. С прошивкой 1.0.8 включённая подсветка после закрытия ThodHUB переходит в автономный тёплый свет.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)

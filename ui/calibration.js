@@ -8,7 +8,7 @@ const CalibrationWizard=(()=>{
   {kind:'bl',title:'Нижний левый угол',point:{x:0,y:1}},
   {kind:'last',title:'Где заканчивается лента?',help:'Сейчас выбран последний LED. Нажмите на контуре там, где он светится. Это учитывает зазор между началом и концом ленты.'}
  ];
- let active=false,step=0,count=96,index=0,anchors=[],map=null,ack=-1,selection=0,run=0,queue=Promise.resolve(),queued=0,timer=null,busy=false,keyboardT=0;
+ let active=false,step=0,count=0,index=0,anchors=[],map=null,ack=-1,selection=0,run=0,queue=Promise.resolve(),queued=0,timer=null,busy=false,keyboardT=0;
  const el=id=>document.getElementById(id);
  function issue(e){el('cal-error').hidden=false;el('cal-error').textContent=e.message||String(e);}
  function clearIssue(){el('cal-error').hidden=true;el('cal-error').textContent='';}
@@ -30,7 +30,7 @@ const CalibrationWizard=(()=>{
  function render(){
   el('cal-intro').hidden=active||!el('cal-count-step').hidden;
   el('cal-work').hidden=!active;
-  el('cal-saved-count').textContent=`Текущая схема: ${settings.points.length} LED`;
+  el('cal-saved-count').textContent=`Сейчас сохранено: ${settings.points.length} LED`;
   if(!active)return;
   const fixed=step===0||step===5;
   el('cal-progress').textContent=step===6?'ПРОВЕРКА СХЕМЫ':`ТОЧКА ${step+1} ИЗ 6`;
@@ -96,7 +96,7 @@ const CalibrationWizard=(()=>{
    if(event.key==='Enter'){event.preventDefault();await accept(steps[step].point||at(keyboardT));}
    else if(['ArrowRight','ArrowDown','ArrowLeft','ArrowUp'].includes(event.key)){event.preventDefault();keyboardT+=(['ArrowRight','ArrowDown'].includes(event.key)?1:-1)*.02;const p=steps[step].point||at(keyboardT);draw();svgElement('circle',{cx:83+p.x*474,cy:65+p.y*270,r:9,fill:'none',stroke:'var(--accent)','stroke-width':2},svg.querySelector('.selection'));}
   });
-  el('cal-start').onclick=()=>{clearIssue();el('cal-result').textContent='';el('cal-count').value=settings.points.length;el('cal-count-step').hidden=false;el('cal-begin').textContent=settings.power?'Начать калибровку':'Включить и начать калибровку';render();};
+  el('cal-start').onclick=()=>{clearIssue();el('cal-result').textContent='';el('cal-count').value='';el('cal-count-step').hidden=false;el('cal-begin').textContent=settings.power?'Начать калибровку':'Включить и начать калибровку';render();setTimeout(()=>el('cal-count').focus(),0);};
   el('cal-count-cancel').onclick=action(cancel);el('cal-cancel').onclick=action(cancel);
   el('cal-begin').onclick=action(async()=>{
    if(!el('cal-count').reportValidity())return;
@@ -123,7 +123,7 @@ const CalibrationWizard=(()=>{
  }
  async function heartbeat(){if(!active||busy||queued||timer)return;try{await sendSelected();}catch(e){await cancel();issue(e);}}
  function update(s){
-  if(!active){el('cal-saved-count').textContent=`Текущая схема: ${settings.points.length} LED`;return;}
+  if(!active){el('cal-saved-count').textContent=`Сейчас сохранено: ${settings.points.length} LED`;return;}
   el('cal-device-note').textContent=!settings.power?'Подсветка выключена. Включите питание справа вверху, чтобы увидеть выбранный LED.':s.connected?'ESP32 на связи. Найдите выбранный LED на реальной ленте. Без подключённой ленты физическую позицию проверить нельзя.':'ESP32 не подключена: команды на ленту сейчас не передаются. Отметки на схеме пока нельзя подтвердить физически.';
  }
  return{init,enter,leave:cancel,heartbeat,update};

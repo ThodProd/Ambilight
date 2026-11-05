@@ -177,7 +177,9 @@ void setup() {
 }
 void loop() {
  button();encoder();serialMaintenance();web.handleClient();discover();receiveFrame();draw();
- if(hadStream&&!streaming()){hadStream=false;powerOn=false;markDirty();}
+ // When the hub stops sending frames, preserve the user's power state. draw()
+ // automatically switches from live colours to the standalone warm light.
+ if(hadStream&&!streaming())hadStream=false;
  if(dirty&&millis()-dirtyAt>1200)saveState();
  if(apOpen&&(int32_t)(millis()-apDeadline)>=0)closeProvisioning();
  if(WiFi.status()!=WL_CONNECTED&&millis()-lastReconnect>15000){lastReconnect=millis();WiFi.reconnect();}
