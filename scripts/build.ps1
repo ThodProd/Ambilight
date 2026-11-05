@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Новая понятная калибровка: явный LED 1 / DIN, направление LED 2, автоматический возврат последнего LED в стартовый угол и зелёная змейка для проверки. Можно отделить конечные LED от рамки, задать им отдельную яркость и использовать как индикатор связи и шкалу яркости. Требуется прошивка ESP32 1.0.9.'
+$notes='Калибровка снова использует компактную миниатюру: угол LED 1 / DIN выбирается точкой, затем явно задаётся направление LED 2. Исправлено погасание выбранного LED при кратком разрыве потока на старой прошивке. ESP32 пользователя обновлена до 1.0.9.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)

@@ -52,7 +52,7 @@ internal static class Startup
 internal sealed class Engine : IDisposable
 {
  readonly ConfigStore store=new();readonly object gate=new();readonly CancellationTokenSource stop=new();readonly Task loop;readonly Task frameLoop;readonly Task networkLoop;readonly Device device;readonly RegionOverlay overlay=new();readonly SemaphoreSlim frameReady=new(0,1);
- Settings settings;string configError="";string captureError="";string networkError="";string activeMode="screen";
+ Settings settings;string configError="";string captureError="";string networkError="";string activeMode="screen",deviceVersion="";
  byte[] colors=[];byte[] outgoing=[];int calibration=-1;List<LedPoint>? calibrationPoints;DateTime calibrationUntil;bool calibrationVerify,calibrationSaved;int calibrationUtilityCount,calibrationUtilityBrightness=20;bool connected;bool configure=true;bool preview=true;
  Task<List<FoundDevice>>? discovery;List<FoundDevice> found=[];string discoveryError="";
  long revision;double actualFps;long frames;bool suspended;int effectiveBrightness=65;
@@ -77,7 +77,7 @@ internal sealed class Engine : IDisposable
    case "init":lock(gate)return new{settings,monitors=Monitors(),autostart=Startup.Enabled,version=typeof(Program).Assembly.GetName().Version!.ToString(3),configError,paired=device.Paired};
    case "status":
     lock(gate){if(discovery?.IsCompleted==true){if(discovery.IsCompletedSuccessfully)found=discovery.Result;else discoveryError=discovery.Exception?.GetBaseException().Message??"Поиск отменён.";discovery=null;}
-     return new{settings,revision,connected,paired=device.Paired,deviceError=networkError,captureError,configError,mode=activeMode,fps=Math.Round(actualFps,1),frames,brightness=effectiveBrightness,colors=preview?colors.Select(b=>(int)b).ToArray():[],calibration,calibrationVerify,calibrationActive=calibrationPoints!=null,calibrationCount=calibrationPoints?.Count??0,scanning=discovery!=null,devices=found,discoveryError,monitors=Monitors()};}
+     return new{settings,revision,connected,paired=device.Paired,deviceVersion,deviceError=networkError,captureError,configError,mode=activeMode,fps=Math.Round(actualFps,1),frames,brightness=effectiveBrightness,colors=preview?colors.Select(b=>(int)b).ToArray():[],calibration,calibrationVerify,calibrationActive=calibrationPoints!=null,calibrationCount=calibrationPoints?.Count??0,scanning=discovery!=null,devices=found,discoveryError,monitors=Monitors()};}
    case "settings":
     var updated=p.Deserialize<Settings>(ConfigStore.Json)??throw new ArgumentException("Нет настроек.");updated.Validate();
     lock(gate){updated.DeviceIp=settings.DeviceIp;updated.DeviceId=settings.DeviceId;store.Save(updated);settings=updated;configError="";configure=true;revision++;return new{settings,revision};}
@@ -184,15 +184,18 @@ internal sealed class Engine : IDisposable
     if((DateTime.UtcNow-lastStatus).TotalSeconds>=1||sendConfig||reconnect)
     {
      var remote=await device.Status(s.DeviceIp,stop.Token);
+     lock(gate)deviceVersion=remote.GetProperty("version").GetString()??"";
      if(remote.GetProperty("id").GetString()!=s.DeviceId)throw new InvalidOperationException("Адрес занят другим устройством.");
      if(!remote.GetProperty("rmtReady").GetBoolean())throw new InvalidOperationException("ESP32 не смогла включить выход ленты. Проверьте GPIO прошивки.");
      bool rp=remote.GetProperty("power").GetBoolean();int rb=remote.GetProperty("brightness").GetInt32();int rn=remote.GetProperty("nightBrightness").GetInt32();
      if(rb is <0 or >100||rn is <0 or >100)throw new InvalidDataException("Некорректная яркость устройства.");
      // On reconnection retain the physical OFF state and standalone brightness.
      // During a live connection an explicit UI command wins; ordinary polls mirror hardware.
-     if(calibrating&&!sendConfig&&!sleep&&rp!=s.Power)
+     if(calibrating&&!sleep&&!rp)
      {
-      lock(gate)if(revision==expectedRevision){var next=settings with{Power=rp};store.Save(next);settings=next;s=s with{Power=rp};revision++;expectedRevision=revision;}
+      // Firmware 1.0.7 turns power off after a 3.5 s stream gap. Calibration is
+      // explicitly temporary and powered, so recover instead of persisting OFF.
+      await device.Configure(s,true,brightness,stop.Token);rp=true;lock(gate)if(revision==expectedRevision)configure=false;
      }
      else if(!calibrating&&(reconnect||!sendConfig)&&!sleep)
      {
