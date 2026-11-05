@@ -24,7 +24,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
  Get-ChildItem (Join-Path $root 'artifacts/firmware') -File | Where-Object {$_.Extension -eq '.bin' -or $_.Name -eq 'checksums.json'} | Copy-Item -Destination $bins
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
-$notes='Калибровка снова использует компактную миниатюру: угол LED 1 / DIN выбирается точкой, затем явно задаётся направление LED 2. Исправлено погасание выбранного LED при кратком разрыве потока на старой прошивке. ESP32 пользователя обновлена до 1.0.9.'
+$notes='Начало и направление ленты теперь выбираются одинаково красиво на компактной миниатюре: сначала точка LED 1 / DIN, затем одна из двух соседних точек «LED 2 сюда». Текстовые кнопки направления убраны.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)
