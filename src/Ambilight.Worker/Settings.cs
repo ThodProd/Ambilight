@@ -27,9 +27,9 @@ public sealed record Settings
  public double Gamma { get; set; } = 1;
  public bool IdleSleep { get; set; } = true;
  public int IdleMinutes { get; set; } = 5;
- public double Red { get; set; } = 1;
- public double Green { get; set; } = 1;
- public double Blue { get; set; } = 1;
+ public double Red { get; set; } = .90;
+ public double Green { get; set; } = .60;
+ public double Blue { get; set; } = .35;
  public int Top { get; set; } = 30;
  public int Side { get; set; } = 18;
  public int Bottom { get; set; } = 30;

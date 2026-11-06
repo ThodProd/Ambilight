@@ -82,7 +82,7 @@ async function start(){const initial=await call('init');settings=initial.setting
  await call('scan');poll();}
 safe(start)();
 $('idle-minutes').onchange=()=>{if($('idle-minutes').reportValidity())change('idleMinutes',+$('idle-minutes').value);};
-$('white-neutral').onclick=()=>{settings.red=1;settings.green=.95;settings.blue=.85;renderSettings();scheduleSave();};
+$('white-neutral').onclick=()=>{settings.red=.90;settings.green=.60;settings.blue=.35;renderSettings();scheduleSave();};
 $('white-reset').onclick=()=>{settings.red=settings.green=settings.blue=1;renderSettings();scheduleSave();};
 $('white-test').onclick=safe(()=>call('white.preview',{enabled:!state?.whitePreview}));
 for(const c of ['red','green','blue'])$(c).oninput=()=>{settings[c]=+$(c).value/100;text(`${c}-value`,`${$(c).value}%`);scheduleSave();};
