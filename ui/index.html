@@ -45,16 +45,16 @@
  </section>
  <section data-view="settings" hidden>
   <div class="section-heading"><div><h2>Настроить под себя</h2></div><span id="save-state" class="muted" role="status">Сохранено</span></div>
-  <div class="settings-columns"><div>
+  <div class="settings-columns"><div><div class="settings-group"><h3>Сон подсветки</h3><label class="check"><input id="idle-sleep" type="checkbox">Если изображение не меняется</label><label>Выключать через, минут<input id="idle-minutes" type="number" min="1" max="180" step="1"></label></div>
    <div class="settings-group"><h3>День и ночь</h3><label class="switch-label spaced"><span>Переключать по расписанию</span><input id="schedule" type="checkbox"><span class="switch"></span></label><div class="two-fields"><label>Начало дня<input id="day-at" type="time"></label><label>Начало ночи<input id="night-at" type="time"></label></div><label>Яркость ночного света <output id="night-value"></output><input id="night-brightness" type="range" min="0" max="100"></label></div>
    <div class="settings-group"><h3>Служебные LED</h3><p id="utility-range" class="hint">Служебные LED настраиваются в калибровке.</p><div id="utility-led-list" class="utility-led-list"></div></div>
    <div class="settings-group"><h3>Запуск и работа</h3><label class="switch-label spaced"><span>Запускать вместе с Windows</span><input id="autostart" type="checkbox"><span class="switch"></span></label><label class="check"><input id="black-bars" type="checkbox">Учитывать чёрные полосы в видео</label></div>
   </div><div>
    <div class="settings-group"><h3>Реакция на экран</h3><label>Плавность <output id="smoothing-value"></output><input id="smoothing" type="range" min="0" max="95"></label><label>Глубина захвата от края <output id="depth-value"></output><input id="depth" type="range" min="1" max="30"></label><button id="show-region" type="button" class="region-button" aria-pressed="false">Показать область захвата</button><label>Частота обновления<select id="fps"><option value="15">15 кадров/с · экономно</option><option value="30">30 кадров/с · сбалансированно</option><option value="60">60 кадров/с · плавно</option></select></label></div>
-   <details class="settings-group"><summary>Точная коррекция цвета</summary><label>Гамма<input id="gamma" type="number" min="0.2" max="3" step="0.05"></label><div class="three-fields"><label>Красный<input id="red" type="number" min="0" max="2" step="0.05"></label><label>Зелёный<input id="green" type="number" min="0" max="2" step="0.05"></label><label>Синий<input id="blue" type="number" min="0" max="2" step="0.05"></label></div></details>
+   <details class="settings-group" open><summary>Баланс белого</summary><div class="white-actions"><button id="white-test" aria-pressed="false">Проверить белый</button><button id="white-neutral">Убрать голубизну</button><button id="white-reset">Сброс RGB</button></div><label>Гамма<input id="gamma" type="number" min="0.2" max="3" step="0.05"></label><label class="color-balance red">Красный<output id="red-value"></output><input id="red" type="range" min="0" max="200" step="1"></label><label class="color-balance green">Зелёный<output id="green-value"></output><input id="green" type="range" min="0" max="200" step="1"></label><label class="color-balance blue">Синий<output id="blue-value"></output><input id="blue" type="range" min="0" max="200" step="1"></label></details>
    
   </div></div>
  </section>
- </main><footer><span id="footer-status"><i class="dot"></i>Виртуальная лента</span><span>Ambilight <span id="version">1.4.0</span></span></footer>
+ </main><footer><span id="footer-status"><i class="dot"></i>Виртуальная лента</span><span>Ambilight <span id="version">1.5.0</span></span></footer>
  <script src="thodhub.js"></script><script src="calibration.js"></script><script src="app.js"></script>
 </body></html>

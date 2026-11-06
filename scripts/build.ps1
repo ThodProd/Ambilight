@@ -25,7 +25,7 @@ if(Test-Path (Join-Path $root 'artifacts/firmware/Ambilight.ino.bin')){
 }
 Get-ChildItem $stage -Filter '*.json' -Recurse | ForEach-Object {$b=[IO.File]::ReadAllBytes($_.FullName);if($b.Length -ge 3 -and $b[0] -eq 239 -and $b[1] -eq 187 -and $b[2] -eq 191){throw ('BOM: '+$_.FullName)}}
 $notes='Для каждого служебного LED добавлена отдельная карточка с функцией, яркостью и цветом. Доступны: связь с ESP32, уровень яркости, цвет экрана, текущий режим, постоянный цвет и выключение. Прошивка 1.1.0 сохраняет индивидуальные настройки и использует их без хаба.'
-$notes='Минималистичный интерфейс. Фоновый захват после закрытия хаба. Лента гаснет без кадров ПК. Кнопка GPIO23 сохраняет состояние питания.'
+$notes='Передача цветов продолжается при задержках ответа ESP32. Отдельные балансы RGB и проверка белого. Плавный сон по неподвижному изображению с настройкой времени.'
 & (Join-Path $HubRoot 'scripts/package-module.ps1') -PackageDirectory $stage -Repository 'ThodProd/Ambilight' -OutputDirectory $out -Notes $notes
 if($LASTEXITCODE){throw 'Package validation failed'}
 Write-Output ('Stage: '+$stage)

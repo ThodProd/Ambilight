@@ -51,3 +51,15 @@ Check(serviceSettings.UtilityLeds.Select(x=>x.Function).SequenceEqual(["connecti
 serviceSettings.Validate();
 
 Console.WriteLine("Calibration checks passed.");
+
+var idle=new IdleDimmer();byte[] pixels=[50,50,50];double fade=1;
+for(int tick=0;tick<=240;tick++)fade=idle.Update(pixels,tick*.25,true,1);
+Check(fade>0&&fade<1,"Сон должен начаться плавно после минуты.");
+for(int tick=241;tick<=252;tick++)fade=idle.Update(pixels,tick*.25,true,1);
+Check(fade==0,"Неподвижное изображение должно погасить ленту.");
+pixels[0]=100;fade=idle.Update(pixels,63.25,true,1);
+Check(fade>0&&fade<1,"Изменение изображения должно плавно разбудить ленту.");
+for(int tick=254;tick<=260;tick++)fade=idle.Update(pixels,tick*.25,true,1);
+Check(fade==1,"После пробуждения яркость должна восстановиться.");
+Check(idle.Update(pixels,66,false,1)==1,"Отключённый сон не должен затемнять ленту.");
+Console.WriteLine("Idle sleep checks passed.");

@@ -4,6 +4,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../src/Ambilight.Worker/IdleDimmer.cs" Link="IdleDimmer.cs" />
     <ProjectReference Include="../../src/Ambilight.Worker/Ambilight.Worker.csproj" />
   </ItemGroup>
 </Project>

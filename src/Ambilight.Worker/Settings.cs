@@ -25,6 +25,8 @@ public sealed record Settings
  public string DayAt { get; set; } = "08:00";
  public string NightAt { get; set; } = "22:00";
  public double Gamma { get; set; } = 1;
+ public bool IdleSleep { get; set; } = true;
+ public int IdleMinutes { get; set; } = 5;
  public double Red { get; set; } = 1;
  public double Green { get; set; } = 1;
  public double Blue { get; set; } = 1;
@@ -64,6 +66,7 @@ public sealed record Settings
  }
  public void Validate()
  {
+  if(IdleMinutes is <1 or >180)throw new ArgumentException("Сон: от 1 до 180 минут.");
   if(Points is null || Points.Count is < 4 or > 360 || Points.Any(p=>p is null || !double.IsFinite(p.X)||!double.IsFinite(p.Y)||p.X<0||p.X>1||p.Y<0||p.Y>1)) throw new ArgumentException("Лента должна содержать от 4 до 360 корректных точек.");
   if(UtilityLedCount<0||UtilityLedCount>Math.Min(32,Points.Count-4))throw new ArgumentException("Служебных LED может быть от 0 до 32; на рамке должно остаться не менее четырёх.");
   if(UtilityBrightness is <0 or >100||!new[]{"status","off"}.Contains(UtilityMode))throw new ArgumentException("Проверьте режим и яркость служебных LED.");

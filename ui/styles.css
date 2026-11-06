@@ -16,3 +16,5 @@
 .brand p,.section-heading p,.range-labels,.network-label,#cal-instruction,#cal-number-help,#cal-review-note{display:none}
 .discovery{justify-content:center;min-height:300px}.connection-help{grid-template-columns:1fr;max-width:380px;margin:24px auto}.connection-help>div:first-child{display:none}.calibrator{max-width:500px}.utility-led-list{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}.settings-columns{gap:32px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.white-actions{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.white-actions button{padding:8px 12px}.white-actions [aria-pressed=true]{border-color:var(--accent);color:var(--accent)}.color-balance{display:block;margin-top:18px!important}.color-balance output{float:right;font-variant-numeric:tabular-nums}.color-balance.red input{accent-color:#dc7272}.color-balance.green input{accent-color:#65ac85}.color-balance.blue input{accent-color:#729fe4}
+
